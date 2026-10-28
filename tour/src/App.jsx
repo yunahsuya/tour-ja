@@ -1,0 +1,1413 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { flattenDays } from "./data/trip.js";
+import {
+  addSpot as addSpotData,
+  DEFAULT_SPOT_CATEGORY,
+  loadSpots,
+  normalizeSpotCategory,
+  removeSpot as removeSpotData,
+  saveSpots,
+  updateSpot as updateSpotData,
+} from "./spotsStorage.js";
+import { clearTripStorage, loadTripData, saveTripData } from "./tripStorage.js";
+import {
+  addWalletEntry,
+  addWalletItemLabel,
+  loadWallet,
+  normalizeWallet,
+  removeWalletEntry,
+  updateWalletEntry,
+  saveWallet,
+  entryTotalTwd,
+  listEntriesByPayer,
+  sumAllByPayer,
+  sumDay,
+} from "./walletStorage.js";
+import { formatForeignFromTwd, parseAmountInput, toTwd } from "./fxRates.js";
+import { EMPTY_ITEMS, WALLET_PAYERS } from "./constants/appConstants.js";
+import {
+  appendItemToTrip,
+  removeItemFromTrip,
+  updateDayInTrip,
+  updateItemInTrip,
+} from "./tripEdit.js";
+import {
+  groupPairsByCalendarDay,
+  stripIndexForToday,
+} from "./dayPickerMeta.js";
+import { mapHrefForTripItem, regionChipLabel } from "./utils/tripFormat.js";
+import { DateStrip } from "./components/layout/DateStrip.jsx";
+import { HeroHeader } from "./components/layout/HeroHeader.jsx";
+import { stripLegacyShareQueryFromUrl } from "./localDataMarker.js";
+import { ShareSyncBar } from "./components/layout/ShareSyncBar.jsx";
+import { IconNav } from "./components/icons/Icons.jsx";
+import { InfoPillPanel } from "./components/trip/InfoPillPanel.jsx";
+import {
+  AddItineraryModal,
+  buildAddDayOptions,
+} from "./components/trip/AddItineraryModal.jsx";
+import { HomePage } from "./pages/HomePage.jsx";
+import { ItineraryPage } from "./pages/ItineraryPage.jsx";
+import { MapPage } from "./pages/MapPage.jsx";
+import { SpotsPage } from "./pages/SpotsPage.jsx";
+import { PackingListPage } from "./pages/PackingListPage.jsx";
+import { WalletPage } from "./pages/WalletPage.jsx";
+import { useFirebaseTourSync } from "./firebase/useFirebaseTourSync.js";
+import { loadInitialTourBundle } from "./firebase/tourCodeCache.js";
+import { PACKING_PROFILES } from "./constants/packingProfiles.js";
+import {
+  loadPackingState,
+  newCustomItemId,
+  newRefBulletId,
+  persistPackingState,
+} from "./packingListStorage.js";
+import {
+  addCustomDriveLink,
+  appendImageIdToAlbum,
+  loadCustomDriveLinks,
+  MAX_IMAGES_PER_ALBUM,
+  newDocImageId,
+  removeCustomDriveLink,
+  removeImageIdFromAlbum,
+  saveCustomDriveLinks,
+  updateCustomDriveLink,
+} from "./driveLinksStorage.js";
+import { deleteDocImage, deleteDocImages, putDocImage } from "./docImagesDb.js";
+import { compressImageFile } from "./utils/imageCompress.js";
+import { discardItemImages } from "./utils/tripItemImages.js";
+import "./App.css";
+
+const initialTourBundle = loadInitialTourBundle();
+
+export default function App() {
+  const [tripData, setTripData] = useState(() => initialTourBundle.tripData);
+  const [tab, setTab] = useState("home");
+  const [filter, setFilter] = useState("all");
+  const [dayIndex, setDayIndex] = useState(() =>
+    stripIndexForToday(flattenDays(initialTourBundle.tripData)),
+  );
+  const [showAllItems, setShowAllItems] = useState(false);
+  const [simpleListExpanded, setSimpleListExpanded] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [wallet, setWallet] = useState(() => initialTourBundle.wallet);
+  const [spots, setSpots] = useState(() => initialTourBundle.spots);
+  const [walletMode, setWalletMode] = useState("daily");
+  const [walletPayerTab, setWalletPayerTab] = useState(WALLET_PAYERS[0]);
+  const [walletNote, setWalletNote] = useState("");
+  const [walletItemMenuOpen, setWalletItemMenuOpen] = useState(false);
+  const [walletItemNewDraft, setWalletItemNewDraft] = useState("");
+  const walletItemComboRef = useRef(null);
+  const [walletAmount, setWalletAmount] = useState("");
+  const [walletFee, setWalletFee] = useState("");
+  const [walletCurrency, setWalletCurrency] = useState("JPY");
+  const [walletPaidBy, setWalletPaidBy] = useState(WALLET_PAYERS[0]);
+  const [editingWalletEntryId, setEditingWalletEntryId] = useState(null);
+  const [editingWalletSourceDayId, setEditingWalletSourceDayId] = useState(null);
+  const [editWalletDayId, setEditWalletDayId] = useState("");
+  const [editWalletNote, setEditWalletNote] = useState("");
+  const [editWalletAmount, setEditWalletAmount] = useState("");
+  const [editWalletFee, setEditWalletFee] = useState("");
+  const [editWalletCurrency, setEditWalletCurrency] = useState("TWD");
+  const [editWalletPaidBy, setEditWalletPaidBy] = useState(WALLET_PAYERS[0]);
+  const [fxConvCode, setFxConvCode] = useState("JPY");
+  const [fxConvForeign, setFxConvForeign] = useState("");
+  const [fxConvTwd, setFxConvTwd] = useState("");
+  const [spotTitle, setSpotTitle] = useState("");
+  const [spotNote, setSpotNote] = useState("");
+  const [spotMapUrl, setSpotMapUrl] = useState("");
+  const [spotCategory, setSpotCategory] = useState(DEFAULT_SPOT_CATEGORY);
+  const [spotFilter, setSpotFilter] = useState("all");
+  const [showSpotForm, setShowSpotForm] = useState(false);
+  const [showAddItemModal, setShowAddItemModal] = useState(false);
+  const [editingSpotId, setEditingSpotId] = useState(null);
+  const [editSpotTitle, setEditSpotTitle] = useState("");
+  const [editSpotNote, setEditSpotNote] = useState("");
+  const [editSpotMapUrl, setEditSpotMapUrl] = useState("");
+  const [editSpotCategory, setEditSpotCategory] = useState(DEFAULT_SPOT_CATEGORY);
+  const [packingListState, setPackingListState] = useState(
+    () => initialTourBundle.packing,
+  );
+  const [customDriveLinks, setCustomDriveLinks] = useState(
+    () => initialTourBundle.driveLinks ?? loadCustomDriveLinks(),
+  );
+  const stripRef = useRef(null);
+  const cardRef = useRef(null);
+  const [isOffline, setIsOffline] = useState(
+    typeof navigator !== "undefined" ? !navigator.onLine : false,
+  );
+
+  const tourSync = useFirebaseTourSync({
+    tripData,
+    wallet,
+    spots,
+    packingListState,
+    customDriveLinks,
+    setTripData,
+    setWallet,
+    setSpots,
+    setPackingListState,
+    setCustomDriveLinks,
+  });
+
+  useEffect(() => {
+    function onOnline() {
+      setIsOffline(false);
+    }
+    function onOffline() {
+      setIsOffline(true);
+    }
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onBeforeInstall = (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", onBeforeInstall);
+    return () =>
+      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+  }, []);
+
+  useEffect(() => {
+    if (!walletItemMenuOpen) return;
+    function onPointerDown(e) {
+      const el = walletItemComboRef.current;
+      if (el && !el.contains(e.target)) setWalletItemMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [walletItemMenuOpen]);
+
+  useEffect(() => {
+    stripLegacyShareQueryFromUrl();
+  }, []);
+
+  const allPairs = useMemo(() => flattenDays(tripData), [tripData]);
+
+  const visiblePairs = useMemo(() => {
+    const filtered =
+      filter === "all"
+        ? allPairs
+        : allPairs.filter((p) => p.region.id === filter);
+    // 「全部」時同日曆日合併，避免台灣出發／日本抵達各佔一格
+    return filter === "all" ? groupPairsByCalendarDay(filtered) : filtered;
+  }, [allPairs, filter]);
+
+  const totalDays = visiblePairs.length;
+  const stripTotal = totalDays + 1;
+  const safeIndex = Math.min(dayIndex, Math.max(0, stripTotal - 1));
+  const isAllDaysView = safeIndex === 0;
+  const current = isAllDaysView ? null : visiblePairs[safeIndex - 1];
+
+  const itineraryEntries = useMemo(() => {
+    if (isAllDaysView) {
+      return visiblePairs.flatMap((pair) => {
+        const sources = pair.sources ?? [pair];
+        return sources.flatMap(({ region, day }) =>
+          day.items.map((item, itemIndex) => ({
+            item,
+            region,
+            day,
+            itemIndex,
+          })),
+        );
+      });
+    }
+    if (!current) return [];
+    const sources = current.sources ?? [current];
+    return sources.flatMap(({ region, day }) =>
+      day.items.map((item, itemIndex) => ({ item, region, day, itemIndex })),
+    );
+  }, [isAllDaysView, visiblePairs, current]);
+
+  const items = useMemo(
+    () => itineraryEntries.map((e) => e.item),
+    [itineraryEntries],
+  );
+  const previewCount = 5;
+  const hiddenCount = Math.max(0, itineraryEntries.length - previewCount);
+  const listEntries = showAllItems
+    ? itineraryEntries
+    : itineraryEntries.slice(0, previewCount);
+
+  const SIMPLE_PREVIEW_MAX = 4;
+  const simplePreviewItems = simpleListExpanded
+    ? items
+    : items.slice(0, SIMPLE_PREVIEW_MAX);
+  const simpleHiddenCount = Math.max(0, items.length - SIMPLE_PREVIEW_MAX);
+  const regionShort = current?.region.name.split("（")[0]?.trim() ?? "";
+  const mapCurrent = isAllDaysView ? (visiblePairs[0] ?? null) : current;
+
+  useEffect(() => {
+    const el = stripRef.current?.querySelector(`[data-day-idx="${safeIndex}"]`);
+    el?.scrollIntoView({
+      behavior: "smooth",
+      inline: "center",
+      block: "nearest",
+    });
+  }, [safeIndex, filter, stripTotal]);
+
+  useEffect(() => {
+    setEditingWalletEntryId(null);
+    setEditingWalletSourceDayId(null);
+    setEditWalletDayId("");
+    setEditWalletNote("");
+    setEditWalletAmount("");
+    setEditWalletFee("");
+    setEditWalletCurrency("TWD");
+    setEditWalletPaidBy(WALLET_PAYERS[0]);
+  }, [current?.day?.id]);
+
+  const progressPct =
+    stripTotal <= 1 ? 100 : (safeIndex / (stripTotal - 1)) * 100;
+
+  function goPrev() {
+    setShowAllItems(false);
+    setSimpleListExpanded(false);
+    setFxConvForeign("");
+    setFxConvTwd("");
+    setDayIndex((i) => Math.max(0, i - 1));
+  }
+
+  function goNext() {
+    setShowAllItems(false);
+    setSimpleListExpanded(false);
+    setFxConvForeign("");
+    setFxConvTwd("");
+    setDayIndex((i) => Math.min(stripTotal - 1, i + 1));
+  }
+
+  async function handleInstallClick() {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    setInstallPrompt(null);
+  }
+
+  function persist(nextTrip) {
+    saveTripData(nextTrip);
+    setTripData(nextTrip);
+  }
+
+  function commitWallet(next) {
+    const n = normalizeWallet(next);
+    saveWallet(n);
+    setWallet(n);
+  }
+
+  function handleUpdateItem(entry, patch) {
+    if (!entry?.day) return;
+    const next = updateItemInTrip(
+      tripData,
+      entry.region.id,
+      entry.day.id,
+      entry.itemIndex,
+      patch,
+    );
+    persist(next);
+  }
+
+  function handleUpdateDay(patch) {
+    if (!current) return;
+    const next = updateDayInTrip(
+      tripData,
+      current.region.id,
+      current.day.id,
+      patch,
+    );
+    persist(next);
+  }
+
+  function handleRemoveItem(entry) {
+    if (!entry?.day) return false;
+    const label = entry.item?.title ?? "此項目";
+    if (!window.confirm(`要刪除「${label}」嗎？此動作無法復原。`)) return false;
+    const imageIds = entry.item?.imageIds ?? [];
+    const next = removeItemFromTrip(
+      tripData,
+      entry.region.id,
+      entry.day.id,
+      entry.itemIndex,
+    );
+    persist(next);
+    if (imageIds.length) discardItemImages(imageIds);
+    return true;
+  }
+
+  function handleResetTrip() {
+    if (!window.confirm("重設為預設行程？此裝置上已編輯的內容會清除。")) return;
+    clearTripStorage();
+    setTripData(loadTripData());
+    setDayIndex(stripIndexForToday(flattenDays(loadTripData())));
+    setShowAllItems(false);
+    setSimpleListExpanded(false);
+    setFxConvForeign("");
+    setFxConvTwd("");
+  }
+
+  function handleAppendItemFromModal({ regionId, dayId, item }) {
+    const next = appendItemToTrip(tripData, regionId, dayId, item);
+    persist(next);
+    setShowAllItems(true);
+    setShowAddItemModal(false);
+    if (tab === "home") setTab("itinerary");
+    requestAnimationFrame(() => {
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function handleAddSpotToItinerary(spot) {
+    if (!current?.day?.id) {
+      window.alert(
+        "目前沒有可加入的日期。請確認行程資料，或先切換到「行程」頁面選擇一天。",
+      );
+      return;
+    }
+    const title = spot.title?.trim() || "新行程";
+    const detail = spot.note?.trim() ? spot.note.trim() : undefined;
+    if (
+      !window.confirm(
+        `要將「${title}」加入「${current.day.label}」（${current.region.name.split("（")[0]?.trim() ?? current.region.name}）嗎？`,
+      )
+    )
+      return;
+    const next = appendItemToTrip(tripData, current.region.id, current.day.id, {
+      type: "activity",
+      time: "",
+      title,
+      detail,
+      ...(spot.mapUrl?.trim() ? { mapUrl: spot.mapUrl.trim() } : {}),
+    });
+    persist(next);
+    setShowAllItems(true);
+    setTab("itinerary");
+  }
+
+  function handleAddWallet(e) {
+    e.preventDefault();
+    if (!current?.day.id) return;
+    const itemTitle = walletNote.trim();
+    if (!itemTitle) {
+      window.alert("請選擇或輸入項目");
+      return;
+    }
+    const amt = parseAmountInput(walletAmount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      window.alert("請輸入大於 0 的金額");
+      return;
+    }
+    const twdVal =
+      walletCurrency === "TWD" ? Math.round(amt) : toTwd(amt, walletCurrency);
+    if (!Number.isFinite(twdVal) || twdVal <= 0) {
+      window.alert("無法換算為台幣，請檢查金額與幣別");
+      return;
+    }
+    const feeRaw = parseAmountInput(walletFee);
+    const feeVal =
+      Number.isFinite(feeRaw) && feeRaw > 0 ? Math.round(feeRaw) : undefined;
+    const next = addWalletEntry(wallet, current.day.id, {
+      note: itemTitle,
+      twd: twdVal,
+      fee: feeVal,
+      foreignAmount: walletCurrency !== "TWD" ? amt : undefined,
+      foreignCurrency: walletCurrency !== "TWD" ? walletCurrency : undefined,
+      paidBy: walletPaidBy,
+    });
+    const withLabel = addWalletItemLabel(next, itemTitle);
+    commitWallet(withLabel);
+    setWalletNote("");
+    setWalletItemMenuOpen(false);
+    setWalletItemNewDraft("");
+    setWalletAmount("");
+    setWalletFee("");
+  }
+
+  function commitNewLabelFromMenu() {
+    const t = walletItemNewDraft.trim();
+    if (!t) {
+      window.alert("請輸入項目名稱");
+      return;
+    }
+    const next = addWalletItemLabel(wallet, t);
+    commitWallet(next);
+    setWalletNote(t);
+    setWalletItemNewDraft("");
+    setWalletItemMenuOpen(false);
+  }
+
+  function handleRemoveWalletEntry(entryId, dayId = current?.day?.id) {
+    if (!dayId) return;
+    if (editingWalletEntryId === entryId) cancelEditWalletEntry();
+    const next = removeWalletEntry(wallet, dayId, entryId);
+    commitWallet(next);
+  }
+
+  function beginEditWalletEntry(entry, dayId) {
+    setEditingWalletEntryId(entry.id);
+    setEditingWalletSourceDayId(dayId);
+    setEditWalletDayId(dayId);
+    setEditWalletNote(entry.note ?? "");
+    if (entry.foreignCurrency && entry.foreignAmount != null) {
+      setEditWalletCurrency(entry.foreignCurrency);
+      setEditWalletAmount(String(entry.foreignAmount));
+    } else {
+      setEditWalletCurrency("TWD");
+      setEditWalletAmount(String(entry.twd ?? ""));
+    }
+    setEditWalletFee(entry.fee > 0 ? String(entry.fee) : "");
+    setEditWalletPaidBy(entry.paidBy ?? WALLET_PAYERS[0]);
+  }
+
+  function cancelEditWalletEntry() {
+    setEditingWalletEntryId(null);
+    setEditingWalletSourceDayId(null);
+    setEditWalletDayId("");
+    setEditWalletNote("");
+    setEditWalletAmount("");
+    setEditWalletFee("");
+    setEditWalletCurrency("TWD");
+    setEditWalletPaidBy(WALLET_PAYERS[0]);
+  }
+
+  function handleSaveWalletEdit(e) {
+    e.preventDefault();
+    if (!editingWalletSourceDayId || !editingWalletEntryId) return;
+    if (!editWalletDayId) {
+      window.alert("請選擇日期");
+      return;
+    }
+    const itemTitle = editWalletNote.trim();
+    if (!itemTitle) {
+      window.alert("請輸入項目");
+      return;
+    }
+    const amt = parseAmountInput(editWalletAmount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      window.alert("請輸入大於 0 的金額");
+      return;
+    }
+    const twdVal =
+      editWalletCurrency === "TWD" ? Math.round(amt) : toTwd(amt, editWalletCurrency);
+    if (!Number.isFinite(twdVal) || twdVal <= 0) {
+      window.alert("無法換算為台幣，請檢查金額與幣別");
+      return;
+    }
+    const feeRaw = parseAmountInput(editWalletFee);
+    const feeVal =
+      Number.isFinite(feeRaw) && feeRaw > 0 ? Math.round(feeRaw) : undefined;
+    const next = updateWalletEntry(wallet, editingWalletSourceDayId, editingWalletEntryId, {
+      targetDayId: editWalletDayId,
+      note: itemTitle,
+      twd: twdVal,
+      fee: feeVal,
+      foreignAmount: editWalletCurrency !== "TWD" ? amt : undefined,
+      foreignCurrency: editWalletCurrency !== "TWD" ? editWalletCurrency : undefined,
+      paidBy: editWalletPaidBy,
+    });
+    const withLabel = addWalletItemLabel(next, itemTitle);
+    commitWallet(withLabel);
+    cancelEditWalletEntry();
+  }
+
+  function handleFxForeignInput(e) {
+    const v = e.target.value;
+    setFxConvForeign(v);
+    const n = parseAmountInput(v);
+    if (!Number.isFinite(n)) {
+      setFxConvTwd("");
+      return;
+    }
+    const twd = toTwd(n, fxConvCode);
+    setFxConvTwd(Number.isFinite(twd) ? String(twd) : "");
+  }
+
+  function handleFxTwdInput(e) {
+    const v = e.target.value;
+    setFxConvTwd(v);
+    const n = parseAmountInput(v);
+    if (!Number.isFinite(n)) {
+      setFxConvForeign("");
+      return;
+    }
+    setFxConvForeign(formatForeignFromTwd(n, fxConvCode));
+  }
+
+  function handleFxCodeChange(e) {
+    const code = e.target.value;
+    setFxConvCode(code);
+    const n = parseAmountInput(fxConvForeign);
+    if (Number.isFinite(n)) {
+      const twd = toTwd(n, code);
+      setFxConvTwd(Number.isFinite(twd) ? String(twd) : "");
+      return;
+    }
+    const t = parseAmountInput(fxConvTwd);
+    if (Number.isFinite(t)) {
+      setFxConvForeign(formatForeignFromTwd(t, code));
+    }
+  }
+
+  function handleAddSpot(e) {
+    e.preventDefault();
+    const cat = normalizeSpotCategory(spotCategory);
+    const next = addSpotData(spots, {
+      title: spotTitle,
+      note: spotNote,
+      mapUrl: spotMapUrl,
+      category: cat,
+    });
+    saveSpots(next);
+    setSpots(next);
+    setSpotTitle("");
+    setSpotNote("");
+    setSpotMapUrl("");
+    setSpotCategory(DEFAULT_SPOT_CATEGORY);
+    setShowSpotForm(false);
+    setEditingSpotId(null);
+    setEditSpotTitle("");
+    setEditSpotNote("");
+    setEditSpotMapUrl("");
+    setEditSpotCategory(DEFAULT_SPOT_CATEGORY);
+    if (spotFilter !== "all" && spotFilter !== cat) setSpotFilter(cat);
+  }
+
+  function handleRemoveSpot(id) {
+    if (editingSpotId === id) {
+      setEditingSpotId(null);
+      setEditSpotTitle("");
+      setEditSpotNote("");
+      setEditSpotMapUrl("");
+      setEditSpotCategory(DEFAULT_SPOT_CATEGORY);
+    }
+    const next = removeSpotData(spots, id);
+    saveSpots(next);
+    setSpots(next);
+  }
+
+  function beginEditSpot(s) {
+    setShowSpotForm(false);
+    setEditingSpotId(s.id);
+    setEditSpotTitle(s.title);
+    setEditSpotNote(s.note ?? "");
+    setEditSpotMapUrl(s.mapUrl ?? "");
+    setEditSpotCategory(normalizeSpotCategory(s.category));
+  }
+
+  function cancelEditSpot() {
+    setEditingSpotId(null);
+    setEditSpotTitle("");
+    setEditSpotNote("");
+    setEditSpotMapUrl("");
+    setEditSpotCategory(DEFAULT_SPOT_CATEGORY);
+  }
+
+  function handleSaveSpotEdit(e) {
+    e.preventDefault();
+    if (!editingSpotId) return;
+    const next = updateSpotData(spots, editingSpotId, {
+      title: editSpotTitle.trim() || "未命名景點",
+      note: editSpotNote,
+      mapUrl: editSpotMapUrl,
+      category: editSpotCategory,
+    });
+    saveSpots(next);
+    setSpots(next);
+    cancelEditSpot();
+  }
+
+  function packingProfileLabel(profileId) {
+    return PACKING_PROFILES.find((p) => p.id === profileId)?.label ?? profileId;
+  }
+
+  function handlePackingSelectProfile(profileId) {
+    setPackingListState((prev) => {
+      const next = { ...prev, activeProfileId: profileId };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  function handlePackingToggle(id) {
+    setPackingListState((prev) => {
+      const pid = prev.activeProfileId;
+      const slice = prev.profiles[pid];
+      const nextChecked = new Set(slice.checked);
+      if (nextChecked.has(id)) nextChecked.delete(id);
+      else nextChecked.add(id);
+      const nextSlice = { ...slice, checked: nextChecked };
+      const nextProfiles = { ...prev.profiles, [pid]: nextSlice };
+      const next = { ...prev, profiles: nextProfiles };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  function handlePackingClearAll() {
+    const pid = packingListState.activeProfileId;
+    if (!window.confirm(`要清除「${packingProfileLabel(pid)}」的所有勾選嗎？`))
+      return;
+    setPackingListState((prev) => {
+      const id = prev.activeProfileId;
+      const slice = prev.profiles[id];
+      const nextSlice = { ...slice, checked: new Set() };
+      const nextProfiles = { ...prev.profiles, [id]: nextSlice };
+      const next = { ...prev, profiles: nextProfiles };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  function handlePackingAddCustom(sectionId, label) {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    setPackingListState((prev) => {
+      const pid = prev.activeProfileId;
+      const slice = prev.profiles[pid];
+      const row = { id: newCustomItemId(), label: trimmed };
+      const list = [...(slice.customsBySection[sectionId] ?? []), row];
+      const nextCustoms = { ...slice.customsBySection, [sectionId]: list };
+      const nextSlice = { ...slice, customsBySection: nextCustoms };
+      const nextProfiles = { ...prev.profiles, [pid]: nextSlice };
+      const next = { ...prev, profiles: nextProfiles };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  function handlePackingRemoveCustom(sectionId, itemId) {
+    setPackingListState((prev) => {
+      const pid = prev.activeProfileId;
+      const slice = prev.profiles[pid];
+      const list = (slice.customsBySection[sectionId] ?? []).filter(
+        (x) => x.id !== itemId,
+      );
+      const nextCustoms = { ...slice.customsBySection };
+      if (list.length) nextCustoms[sectionId] = list;
+      else delete nextCustoms[sectionId];
+      const nextChecked = new Set(slice.checked);
+      nextChecked.delete(itemId);
+      const nextSlice = {
+        ...slice,
+        checked: nextChecked,
+        customsBySection: nextCustoms,
+      };
+      const nextProfiles = { ...prev.profiles, [pid]: nextSlice };
+      const next = { ...prev, profiles: nextProfiles };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  function handlePackingUpdateLabel(sectionId, itemId, isCustom, label) {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    setPackingListState((prev) => {
+      const pid = prev.activeProfileId;
+      const slice = prev.profiles[pid];
+      let nextSlice;
+      if (isCustom) {
+        const list = (slice.customsBySection[sectionId] ?? []).map((x) =>
+          x.id === itemId ? { ...x, label: trimmed } : x,
+        );
+        const nextCustoms = { ...slice.customsBySection, [sectionId]: list };
+        nextSlice = { ...slice, customsBySection: nextCustoms };
+      } else {
+        const nextOverrides = { ...slice.labelOverrides, [itemId]: trimmed };
+        nextSlice = { ...slice, labelOverrides: nextOverrides };
+      }
+      const nextProfiles = { ...prev.profiles, [pid]: nextSlice };
+      const next = { ...prev, profiles: nextProfiles };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  function handlePackingDeleteItem(sectionId, itemId, isCustom) {
+    if (isCustom) {
+      handlePackingRemoveCustom(sectionId, itemId);
+      return;
+    }
+    setPackingListState((prev) => {
+      const pid = prev.activeProfileId;
+      const slice = prev.profiles[pid];
+      const nextHidden = new Set(slice.hiddenDefaultIds);
+      nextHidden.add(itemId);
+      const nextOverrides = { ...slice.labelOverrides };
+      delete nextOverrides[itemId];
+      const nextChecked = new Set(slice.checked);
+      nextChecked.delete(itemId);
+      const nextSlice = {
+        ...slice,
+        checked: nextChecked,
+        hiddenDefaultIds: nextHidden,
+        labelOverrides: nextOverrides,
+      };
+      const nextProfiles = { ...prev.profiles, [pid]: nextSlice };
+      const next = { ...prev, profiles: nextProfiles };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  function handleRefUpdateTitle(blockKey, title) {
+    setPackingListState((prev) => {
+      const cur = prev.referenceBlocks[blockKey];
+      const trimmed = title.trim().slice(0, 200);
+      const nextBlock = { ...cur, title: trimmed || cur.title };
+      const rb = { ...prev.referenceBlocks, [blockKey]: nextBlock };
+      const next = { ...prev, referenceBlocks: rb };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  function handleRefUpdateNote(blockKey, note) {
+    setPackingListState((prev) => {
+      const cur = prev.referenceBlocks[blockKey];
+      const nextBlock = { ...cur, note: note.slice(0, 1000) };
+      const rb = { ...prev.referenceBlocks, [blockKey]: nextBlock };
+      const next = { ...prev, referenceBlocks: rb };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  function handleRefAddBullet(blockKey, text) {
+    const t = text.trim();
+    if (!t) return;
+    setPackingListState((prev) => {
+      const cur = prev.referenceBlocks[blockKey];
+      const bullets = [
+        ...cur.bullets,
+        { id: newRefBulletId(), text: t.slice(0, 1500) },
+      ];
+      const nextBlock = { ...cur, bullets };
+      const rb = { ...prev.referenceBlocks, [blockKey]: nextBlock };
+      const next = { ...prev, referenceBlocks: rb };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  function handleRefUpdateBullet(blockKey, bulletId, text) {
+    const t = text.trim();
+    if (!t) return;
+    setPackingListState((prev) => {
+      const cur = prev.referenceBlocks[blockKey];
+      const bullets = cur.bullets.map((b) =>
+        b.id === bulletId ? { ...b, text: t.slice(0, 1500) } : b,
+      );
+      const nextBlock = { ...cur, bullets };
+      const rb = { ...prev.referenceBlocks, [blockKey]: nextBlock };
+      const next = { ...prev, referenceBlocks: rb };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  function handleRefDeleteBullet(blockKey, bulletId) {
+    setPackingListState((prev) => {
+      const cur = prev.referenceBlocks[blockKey];
+      const bullets = cur.bullets.filter((b) => b.id !== bulletId);
+      const nextBlock = { ...cur, bullets };
+      const rb = { ...prev.referenceBlocks, [blockKey]: nextBlock };
+      const next = { ...prev, referenceBlocks: rb };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  function commitDriveLinks(next) {
+    saveCustomDriveLinks(next);
+    setCustomDriveLinks(next);
+  }
+
+  function handleAddDriveLink(payload) {
+    const next = addCustomDriveLink(customDriveLinks, payload);
+    if (next.links.length === customDriveLinks.links.length) return;
+    commitDriveLinks(next);
+  }
+
+  function handleUpdateDriveLink(id, patch) {
+    commitDriveLinks(updateCustomDriveLink(customDriveLinks, id, patch));
+  }
+
+  function handleRemoveDriveLink(id) {
+    const target = customDriveLinks.links.find((l) => l.id === id);
+    const imageIds = target?.imageIds ?? [];
+    commitDriveLinks(removeCustomDriveLink(customDriveLinks, id));
+    if (imageIds.length) void deleteDocImages(imageIds);
+  }
+
+  async function handleAddAlbumImages(albumId, files) {
+    const album = customDriveLinks.links.find((l) => l.id === albumId);
+    if (!album) return;
+    const room = MAX_IMAGES_PER_ALBUM - (album.imageIds?.length ?? 0);
+    if (room <= 0) {
+      window.alert(`每個分類最多 ${MAX_IMAGES_PER_ALBUM} 張圖片`);
+      return;
+    }
+    const picked = files.slice(0, room);
+    let next = customDriveLinks;
+    let added = 0;
+    for (const file of picked) {
+      try {
+        const { blob, name, mime } = await compressImageFile(file);
+        const imageId = newDocImageId();
+        await putDocImage(imageId, {
+          albumId,
+          name,
+          mime,
+          blob,
+          createdAt: Date.now(),
+        });
+        const result = appendImageIdToAlbum(next, albumId, imageId);
+        if (!result.addedId) {
+          await deleteDocImage(imageId);
+          break;
+        }
+        next = { links: result.links };
+        added += 1;
+      } catch (err) {
+        console.warn("[tour] 圖片上傳失敗", err);
+        window.alert(err?.message || "圖片處理失敗，請換一張再試");
+      }
+    }
+    if (added > 0) commitDriveLinks(next);
+    if (picked.length < files.length) {
+      window.alert(`每個分類最多 ${MAX_IMAGES_PER_ALBUM} 張，已加入前 ${picked.length} 張`);
+    }
+  }
+
+  function handleRemoveAlbumImage(albumId, imageId) {
+    commitDriveLinks(removeImageIdFromAlbum(customDriveLinks, albumId, imageId));
+    void deleteDocImage(imageId);
+  }
+
+  const dayEntries = current?.day.id
+    ? (wallet.byDay[current.day.id] ?? [])
+    : [];
+  const dayWalletTotal = current?.day.id ? sumDay(wallet, current.day.id) : 0;
+  const walletSummarySub = useMemo(() => {
+    const list = current?.day.id ? (wallet.byDay[current.day.id] ?? []) : [];
+    const total = current?.day.id ? sumDay(wallet, current.day.id) : 0;
+    const foreign = list.some((e) => Boolean(e.foreignCurrency));
+    if (total <= 0 && list.length === 0) return "尚無外幣支出";
+    if (total <= 0) return "尚無外幣支出";
+    if (foreign) return "含外幣紀錄（已換算為台幣）";
+    return "皆為台幣紀錄";
+  }, [current?.day.id, wallet]);
+
+  const walletFormParsed = parseAmountInput(walletAmount);
+  const walletFormTwdPreview =
+    walletCurrency === "TWD"
+      ? Number.isFinite(walletFormParsed)
+        ? Math.round(walletFormParsed)
+        : NaN
+      : toTwd(walletFormParsed, walletCurrency);
+
+  const editWalletFormParsed = parseAmountInput(editWalletAmount);
+  const editWalletFormTwdPreview =
+    editWalletCurrency === "TWD"
+      ? Number.isFinite(editWalletFormParsed)
+        ? Math.round(editWalletFormParsed)
+        : NaN
+      : toTwd(editWalletFormParsed, editWalletCurrency);
+
+  const walletBreakdown = useMemo(
+    () =>
+      allPairs
+        .map(({ day }) => ({
+          id: day.id,
+          label: day.label,
+          total: sumDay(wallet, day.id),
+        }))
+        .filter((x) => x.total > 0),
+    [allPairs, wallet],
+  );
+
+  const dayLabelById = useMemo(() => {
+    const m = new Map();
+    for (const { day } of allPairs) {
+      m.set(day.id, day.label);
+    }
+    return m;
+  }, [allPairs]);
+
+  const walletDayOptions = useMemo(
+    () => allPairs.map(({ day }) => ({ id: day.id, label: day.label })),
+    [allPairs],
+  );
+
+  const walletPayerBreakdown = useMemo(() => {
+    const rows = sumAllByPayer(wallet);
+    const rank = (name) => {
+      const i = WALLET_PAYERS.indexOf(name);
+      if (i >= 0) return i;
+      if (name === "未指定付款人") return 1000;
+      return 100;
+    };
+    return [...rows].sort((a, b) => {
+      const ra = rank(a[0]);
+      const rb = rank(b[0]);
+      if (ra !== rb) return ra - rb;
+      return b[1] - a[1];
+    });
+  }, [wallet]);
+
+  const walletPayerEntries = useMemo(
+    () => listEntriesByPayer(wallet, walletPayerTab, dayLabelById),
+    [wallet, walletPayerTab, dayLabelById],
+  );
+
+  const walletPayerTabTotal = useMemo(
+    () => walletPayerEntries.reduce((s, r) => s + entryTotalTwd(r.entry), 0),
+    [walletPayerEntries],
+  );
+
+  const mapPlaces = useMemo(
+    () =>
+      itineraryEntries
+        .filter(
+          ({ item }) => item.type === "activity" || item.type === "stay",
+        )
+        .map(({ item, day }) => ({
+          title: item.title,
+          key: `${day.id}-${item.title}`,
+          href: mapHrefForTripItem(item),
+        })),
+    [itineraryEntries],
+  );
+
+  const dayImportantLinks = useMemo(() => {
+    const out = [];
+    const seen = new Set();
+    for (const it of items) {
+      for (const link of it.links ?? []) {
+        if (!link?.href || seen.has(link.href)) continue;
+        seen.add(link.href);
+        out.push({
+          label: link.label || link.href,
+          href: link.href,
+          from: it.title,
+        });
+      }
+    }
+    return out;
+  }, [items]);
+
+  const showFab = tab === "home" || tab === "itinerary" || tab === "spots";
+
+  const addDayOptions = useMemo(
+    () => buildAddDayOptions(visiblePairs),
+    [visiblePairs],
+  );
+
+  const regionTagOptions = useMemo(
+    () =>
+      Array.isArray(tripData)
+        ? tripData.map((r) => regionChipLabel(r)).filter(Boolean)
+        : [],
+    [tripData],
+  );
+
+  function openSpotForm() {
+    cancelEditSpot();
+    setSpotTitle("");
+    setSpotNote("");
+    setSpotMapUrl("");
+    setSpotCategory(
+      spotFilter === "food" || spotFilter === "sight"
+        ? spotFilter
+        : DEFAULT_SPOT_CATEGORY,
+    );
+    setShowSpotForm(true);
+  }
+
+  useEffect(() => {
+    if (!showSpotForm || tab !== "spots") return;
+    const id = window.setTimeout(() => {
+      document
+        .querySelector(".spot-form")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+    return () => window.clearTimeout(id);
+  }, [showSpotForm, tab]);
+
+  function onFilterChange(id) {
+    setFilter(id);
+    setDayIndex(1);
+    setShowAllItems(false);
+    setSimpleListExpanded(false);
+    setFxConvForeign("");
+    setFxConvTwd("");
+  }
+
+  function onSelectDay(idx) {
+    setDayIndex(idx);
+    setShowAllItems(idx === 0);
+    setSimpleListExpanded(false);
+    setFxConvForeign("");
+    setFxConvTwd("");
+  }
+
+  function onCancelSpotForm() {
+    setShowSpotForm(false);
+    setSpotMapUrl("");
+    setSpotCategory(DEFAULT_SPOT_CATEGORY);
+    cancelEditSpot();
+  }
+
+  return (
+    <div className={`app ${showFab ? "app--fab" : ""}`}>
+      {isOffline ? (
+        <p className="app-offline-banner" role="status">
+          離線中：已安裝並開啟過的頁面可繼續瀏覽本機行程、記帳、景點與行李清單；地圖與外部網址需網路。
+        </p>
+      ) : null}
+      <HeroHeader
+        tripData={tripData}
+        filter={filter}
+        onResetTrip={handleResetTrip}
+        onFilterChange={onFilterChange}
+      />
+
+      <ShareSyncBar
+        firebaseEnabled={tourSync.firebaseEnabled}
+        shareCode={tourSync.shareCode}
+        syncReady={tourSync.syncReady}
+        syncBusy={tourSync.syncBusy}
+        syncError={tourSync.syncError}
+        onCreateCode={tourSync.createShareCode}
+        onJoinCode={tourSync.joinShareCode}
+        onLeaveCode={tourSync.leaveShareCode}
+      />
+
+      <DateStrip
+        stripRef={stripRef}
+        visiblePairs={visiblePairs}
+        safeIndex={safeIndex}
+        totalDays={totalDays}
+        stripTotal={stripTotal}
+        isAllDaysView={isAllDaysView}
+        progressPct={progressPct}
+        onSelectDay={onSelectDay}
+        goPrev={goPrev}
+        goNext={goNext}
+      />
+
+      {(tab === "home" || tab === "itinerary") && (
+        <InfoPillPanel
+          dayImportantLinks={dayImportantLinks}
+          customDriveLinks={customDriveLinks}
+          onAddDriveLink={handleAddDriveLink}
+          onUpdateDriveLink={handleUpdateDriveLink}
+          onRemoveDriveLink={handleRemoveDriveLink}
+          onAddAlbumImages={handleAddAlbumImages}
+          onRemoveAlbumImage={handleRemoveAlbumImage}
+        />
+      )}
+
+      {tab === "home" && (
+        <HomePage
+          cardRef={cardRef}
+          current={current}
+          tripData={tripData}
+          regionShort={regionShort}
+          items={items}
+          simplePreviewItems={simplePreviewItems}
+          simpleHiddenCount={simpleHiddenCount}
+          simpleListExpanded={simpleListExpanded}
+          onToggleSimpleExpanded={() => setSimpleListExpanded((v) => !v)}
+          onExpandSimpleAll={() => setSimpleListExpanded(true)}
+          listEntries={listEntries}
+          isAllDaysView={isAllDaysView}
+          totalDays={totalDays}
+          itineraryEntryCount={itineraryEntries.length}
+          showAllItems={showAllItems}
+          hiddenCount={hiddenCount}
+          onToggleShowAllItems={() => setShowAllItems((v) => !v)}
+          onShowAllItems={() => setShowAllItems(true)}
+          onUpdateItem={handleUpdateItem}
+          onRemoveItem={handleRemoveItem}
+          onUpdateDay={handleUpdateDay}
+          onNavigateTab={setTab}
+        />
+      )}
+
+      {tab === "itinerary" && (
+        <ItineraryPage
+          cardRef={cardRef}
+          current={current}
+          tripData={tripData}
+          listEntries={listEntries}
+          isAllDaysView={isAllDaysView}
+          totalDays={totalDays}
+          itineraryEntryCount={itineraryEntries.length}
+          showAllItems={showAllItems}
+          hiddenCount={hiddenCount}
+          onToggleShowAllItems={() => setShowAllItems((v) => !v)}
+          onShowAllItems={() => setShowAllItems(true)}
+          onUpdateItem={handleUpdateItem}
+          onRemoveItem={handleRemoveItem}
+          onUpdateDay={handleUpdateDay}
+        />
+      )}
+
+      {tab === "map" && (
+        <MapPage current={mapCurrent} items={items} mapPlaces={mapPlaces} />
+      )}
+
+      {tab === "wallet" && (
+        <WalletPage
+          current={current}
+          wallet={wallet}
+          walletMode={walletMode}
+          setWalletMode={setWalletMode}
+          dayEntries={dayEntries}
+          dayWalletTotal={dayWalletTotal}
+          walletSummarySub={walletSummarySub}
+          fxConvCode={fxConvCode}
+          handleFxCodeChange={handleFxCodeChange}
+          fxConvForeign={fxConvForeign}
+          handleFxForeignInput={handleFxForeignInput}
+          fxConvTwd={fxConvTwd}
+          handleFxTwdInput={handleFxTwdInput}
+          handleAddWallet={handleAddWallet}
+          walletItemComboRef={walletItemComboRef}
+          walletItemMenuOpen={walletItemMenuOpen}
+          setWalletItemMenuOpen={setWalletItemMenuOpen}
+          walletNote={walletNote}
+          walletItemNewDraft={walletItemNewDraft}
+          setWalletItemNewDraft={setWalletItemNewDraft}
+          commitNewLabelFromMenu={commitNewLabelFromMenu}
+          walletAmount={walletAmount}
+          setWalletAmount={setWalletAmount}
+          walletFee={walletFee}
+          setWalletFee={setWalletFee}
+          walletCurrency={walletCurrency}
+          setWalletCurrency={setWalletCurrency}
+          walletPaidBy={walletPaidBy}
+          setWalletPaidBy={setWalletPaidBy}
+          walletFormTwdPreview={walletFormTwdPreview}
+          handleRemoveWalletEntry={handleRemoveWalletEntry}
+          editingWalletEntryId={editingWalletEntryId}
+          walletDayOptions={walletDayOptions}
+          editWalletDayId={editWalletDayId}
+          setEditWalletDayId={setEditWalletDayId}
+          editWalletNote={editWalletNote}
+          setEditWalletNote={setEditWalletNote}
+          editWalletAmount={editWalletAmount}
+          setEditWalletAmount={setEditWalletAmount}
+          editWalletFee={editWalletFee}
+          setEditWalletFee={setEditWalletFee}
+          editWalletCurrency={editWalletCurrency}
+          setEditWalletCurrency={setEditWalletCurrency}
+          editWalletPaidBy={editWalletPaidBy}
+          setEditWalletPaidBy={setEditWalletPaidBy}
+          editWalletFormTwdPreview={editWalletFormTwdPreview}
+          beginEditWalletEntry={beginEditWalletEntry}
+          cancelEditWalletEntry={cancelEditWalletEntry}
+          handleSaveWalletEdit={handleSaveWalletEdit}
+          walletBreakdown={walletBreakdown}
+          walletPayerBreakdown={walletPayerBreakdown}
+          walletPayerTab={walletPayerTab}
+          setWalletPayerTab={setWalletPayerTab}
+          walletPayerEntries={walletPayerEntries}
+          walletPayerTabTotal={walletPayerTabTotal}
+          dayLabelById={dayLabelById}
+          setWallet={setWallet}
+          setWalletNote={setWalletNote}
+          persistWallet={commitWallet}
+        />
+      )}
+
+      {tab === "spots" && (
+        <SpotsPage
+          spots={spots}
+          spotFilter={spotFilter}
+          setSpotFilter={setSpotFilter}
+          showSpotForm={showSpotForm}
+          spotTitle={spotTitle}
+          setSpotTitle={setSpotTitle}
+          spotNote={spotNote}
+          setSpotNote={setSpotNote}
+          spotMapUrl={spotMapUrl}
+          setSpotMapUrl={setSpotMapUrl}
+          spotCategory={spotCategory}
+          setSpotCategory={setSpotCategory}
+          handleAddSpot={handleAddSpot}
+          editingSpotId={editingSpotId}
+          editSpotTitle={editSpotTitle}
+          setEditSpotTitle={setEditSpotTitle}
+          editSpotNote={editSpotNote}
+          setEditSpotNote={setEditSpotNote}
+          editSpotMapUrl={editSpotMapUrl}
+          setEditSpotMapUrl={setEditSpotMapUrl}
+          editSpotCategory={editSpotCategory}
+          setEditSpotCategory={setEditSpotCategory}
+          handleSaveSpotEdit={handleSaveSpotEdit}
+          beginEditSpot={beginEditSpot}
+          cancelEditSpot={cancelEditSpot}
+          handleRemoveSpot={handleRemoveSpot}
+          handleAddSpotToItinerary={handleAddSpotToItinerary}
+          onCancelSpotForm={onCancelSpotForm}
+        />
+      )}
+
+      {tab === "packing" && (
+        <PackingListPage
+          activeProfileId={packingListState.activeProfileId}
+          onSelectProfile={handlePackingSelectProfile}
+          checkedIds={
+            packingListState.profiles[packingListState.activeProfileId].checked
+          }
+          customsBySection={
+            packingListState.profiles[packingListState.activeProfileId]
+              .customsBySection
+          }
+          hiddenDefaultIds={
+            packingListState.profiles[packingListState.activeProfileId]
+              .hiddenDefaultIds
+          }
+          labelOverrides={
+            packingListState.profiles[packingListState.activeProfileId]
+              .labelOverrides
+          }
+          referenceBlocks={packingListState.referenceBlocks}
+          onRefUpdateTitle={handleRefUpdateTitle}
+          onRefUpdateNote={handleRefUpdateNote}
+          onRefAddBullet={handleRefAddBullet}
+          onRefUpdateBullet={handleRefUpdateBullet}
+          onRefDeleteBullet={handleRefDeleteBullet}
+          onToggle={handlePackingToggle}
+          onClearAll={handlePackingClearAll}
+          onAddCustom={handlePackingAddCustom}
+          onUpdateLabel={handlePackingUpdateLabel}
+          onDeleteItem={handlePackingDeleteItem}
+        />
+      )}
+
+      {installPrompt && (
+        <button
+          type="button"
+          className="install-banner"
+          onClick={handleInstallClick}
+        >
+          安裝到裝置（全螢幕、像 App）
+        </button>
+      )}
+      <p className="fine-print">
+        行程請在該列點「編輯」修改文字與地圖連結；備用景點請在卡片點「編輯」修改名稱、地圖連結與備註。齒輪可重設預設。未加入行程代碼時，資料僅存在本機瀏覽器；加入代碼後可跨裝置同步（見上方區塊）。行李清單可依家庭成員（妹妹、姊姊、媽媽、爸爸）分開勾選與自訂項目；下方航空參考區的標題、說明與每則備註皆可新增、編輯、刪除。
+        離線：請先以 HTTPS 部署或本機執行 npm run build 後 npm run
+        preview，用瀏覽器完整開啟一次再關閉網路；已安裝為 App 者亦可離線開啟。
+        PWA：Chrome／Edge「安裝應用程式」；iPhone Safari「加入主畫面」。
+      </p>
+
+      {showFab && (
+        <button
+          type="button"
+          className="fab"
+          aria-label={tab === "spots" ? "新增備用景點" : "新增行程項目"}
+          onClick={() => {
+            if (tab === "home" || tab === "itinerary") setShowAddItemModal(true);
+            else if (tab === "spots") openSpotForm();
+          }}
+        >
+          +
+        </button>
+      )}
+
+      <AddItineraryModal
+        open={showAddItemModal}
+        onClose={() => setShowAddItemModal(false)}
+        onSubmit={handleAppendItemFromModal}
+        dayOptions={addDayOptions}
+        defaultDayId={current?.day?.id ?? mapCurrent?.day?.id ?? ""}
+        regionTagOptions={regionTagOptions}
+      />
+
+      <nav className="bottom-nav bottom-nav--six" aria-label="主選單">
+        <button
+          type="button"
+          className={
+            tab === "itinerary"
+              ? "bottom-nav-item bottom-nav-item--active"
+              : "bottom-nav-item"
+          }
+          onClick={() => setTab("itinerary")}
+        >
+          <IconNav name="itinerary" />
+          <span>行程</span>
+        </button>
+        <button
+          type="button"
+          className={
+            tab === "map"
+              ? "bottom-nav-item bottom-nav-item--active"
+              : "bottom-nav-item"
+          }
+          onClick={() => setTab("map")}
+        >
+          <IconNav name="map" />
+          <span>地圖</span>
+        </button>
+        <button
+          type="button"
+          className={
+            tab === "home"
+              ? "bottom-nav-item bottom-nav-item--fab bottom-nav-item--active"
+              : "bottom-nav-item bottom-nav-item--fab"
+          }
+          onClick={() => setTab("home")}
+        >
+          <IconNav name="home" />
+          <span>首頁</span>
+        </button>
+        <button
+          type="button"
+          className={
+            tab === "wallet"
+              ? "bottom-nav-item bottom-nav-item--active"
+              : "bottom-nav-item"
+          }
+          onClick={() => setTab("wallet")}
+        >
+          <IconNav name="wallet" />
+          <span>記帳</span>
+        </button>
+        <button
+          type="button"
+          className={
+            tab === "spots"
+              ? "bottom-nav-item bottom-nav-item--active"
+              : "bottom-nav-item"
+          }
+          onClick={() => setTab("spots")}
+        >
+          <IconNav name="sights" />
+          <span>景點</span>
+        </button>
+        <button
+          type="button"
+          className={
+            tab === "packing"
+              ? "bottom-nav-item bottom-nav-item--active"
+              : "bottom-nav-item"
+          }
+          onClick={() => setTab("packing")}
+          aria-label="行李清單"
+        >
+          <IconNav name="packing" />
+          <span className="bottom-nav-label--tight">行李清單</span>
+        </button>
+      </nav>
+    </div>
+  );
+}

@@ -1,0 +1,259 @@
+import { touchLocalDataSavedCookie } from './localDataMarker.js'
+
+const KEY = 'tour-wallet-v1'
+
+/** 內建項目選項（順序固定在最前） */
+export const DEFAULT_WALLET_ITEM_LABELS = ['早餐', '午餐', '晚餐']
+
+/** 行程合併重複日期後，將記帳項目改掛到保留的 dayId */
+export function remapWalletDayIds(data, dayIdRemap) {
+  if (!dayIdRemap?.size) return normalizeWallet(data)
+  const w = normalizeWallet(data)
+  const nextByDay = { ...w.byDay }
+  for (const [from, to] of dayIdRemap) {
+    if (from === to) continue
+    const list = nextByDay[from]
+    if (!list?.length) continue
+    nextByDay[to] = [...(nextByDay[to] ?? []), ...list]
+    delete nextByDay[from]
+  }
+  return { ...w, byDay: nextByDay }
+}
+
+export function normalizeWallet(data) {
+  const byDay = data?.byDay && typeof data.byDay === 'object' ? { ...data.byDay } : {}
+  const seen = new Set()
+  const ordered = []
+  for (const d of DEFAULT_WALLET_ITEM_LABELS) {
+    seen.add(d)
+    ordered.push(d)
+  }
+  const rest = Array.isArray(data?.itemLabels) ? data.itemLabels : []
+  for (const x of rest) {
+    const t = String(x).trim()
+    if (!t || seen.has(t)) continue
+    seen.add(t)
+    ordered.push(t)
+  }
+  return { ...data, byDay, itemLabels: ordered }
+}
+
+function defaultWallet() {
+  return normalizeWallet({ byDay: {} })
+}
+
+export function loadWallet() {
+  if (typeof localStorage === 'undefined') return defaultWallet()
+  try {
+    const raw = localStorage.getItem(KEY)
+    if (!raw) return defaultWallet()
+    const p = JSON.parse(raw)
+    if (!p || typeof p.byDay !== 'object') return defaultWallet()
+    return normalizeWallet(p)
+  } catch {
+    return defaultWallet()
+  }
+}
+
+export function saveWallet(data) {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(KEY, JSON.stringify(normalizeWallet(data)))
+    touchLocalDataSavedCookie()
+  } catch {
+    // ignore
+  }
+}
+
+/** 若為新字串則加入項目選單（不重複） */
+export function addWalletItemLabel(data, label) {
+  const t = String(label).trim()
+  if (!t) return normalizeWallet(data)
+  const base = normalizeWallet(data)
+  if (base.itemLabels.includes(t)) return base
+  return { ...base, itemLabels: [...base.itemLabels, t] }
+}
+
+/** 從選單移除自訂項目（內建 早餐／午餐／晚餐 不可刪）；已記帳的 note 不會改寫 */
+export function removeWalletItemLabel(data, label) {
+  const t = String(label).trim()
+  if (!t || DEFAULT_WALLET_ITEM_LABELS.includes(t)) return normalizeWallet(data)
+  const base = normalizeWallet(data)
+  const nextLabels = base.itemLabels.filter((x) => x !== t)
+  return normalizeWallet({ ...base, itemLabels: nextLabels })
+}
+
+/** 單筆支出台幣合計（主金額 + 手續費） */
+export function entryTotalTwd(entry) {
+  return (Number(entry?.twd) || 0) + (Number(entry?.fee) || 0)
+}
+
+export function addWalletEntry(data, dayId, { note, twd, fee, foreignAmount, foreignCurrency, paidBy }) {
+  const base = normalizeWallet(data)
+  const next = { ...base, byDay: { ...base.byDay } }
+  const list = [...(next.byDay[dayId] ?? [])]
+  const id =
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `w-${Date.now()}`
+  const twdNum = Math.round(Number(twd)) || 0
+  const feeNum = Math.round(Number(fee)) || 0
+  const entry = {
+    id,
+    note: note.trim() || '未命名',
+    twd: twdNum,
+  }
+  if (feeNum > 0) entry.fee = feeNum
+  if (paidBy && String(paidBy).trim()) {
+    entry.paidBy = String(paidBy).trim()
+  }
+  if (
+    foreignCurrency &&
+    foreignCurrency !== 'TWD' &&
+    foreignAmount != null &&
+    Number.isFinite(Number(foreignAmount))
+  ) {
+    entry.foreignAmount = Number(foreignAmount)
+    entry.foreignCurrency = foreignCurrency
+  }
+  list.push(entry)
+  next.byDay[dayId] = list
+  return next
+}
+
+export function removeWalletEntry(data, dayId, entryId) {
+  const base = normalizeWallet(data)
+  const next = { ...base, byDay: { ...base.byDay } }
+  const list = (next.byDay[dayId] ?? []).filter((e) => e.id !== entryId)
+  if (list.length) next.byDay[dayId] = list
+  else delete next.byDay[dayId]
+  return next
+}
+
+export function updateWalletEntry(
+  data,
+  dayId,
+  entryId,
+  { targetDayId, note, twd, fee, foreignAmount, foreignCurrency, paidBy },
+) {
+  const base = normalizeWallet(data)
+  const next = { ...base, byDay: { ...base.byDay } }
+  const list = [...(next.byDay[dayId] ?? [])]
+  const idx = list.findIndex((e) => e.id === entryId)
+  if (idx < 0) return base
+
+  const twdNum = Math.round(Number(twd)) || 0
+  const feeNum = Math.round(Number(fee)) || 0
+  const entry = {
+    ...list[idx],
+    note: note.trim() || '未命名',
+    twd: twdNum,
+  }
+  if (feeNum > 0) entry.fee = feeNum
+  else delete entry.fee
+  if (paidBy && String(paidBy).trim()) {
+    entry.paidBy = String(paidBy).trim()
+  } else {
+    delete entry.paidBy
+  }
+  if (
+    foreignCurrency &&
+    foreignCurrency !== 'TWD' &&
+    foreignAmount != null &&
+    Number.isFinite(Number(foreignAmount))
+  ) {
+    entry.foreignAmount = Number(foreignAmount)
+    entry.foreignCurrency = foreignCurrency
+  } else {
+    delete entry.foreignAmount
+    delete entry.foreignCurrency
+  }
+
+  const destDayId = targetDayId && String(targetDayId).trim() ? targetDayId : dayId
+  if (destDayId === dayId) {
+    list[idx] = entry
+    next.byDay[dayId] = list
+    return next
+  }
+
+  list.splice(idx, 1)
+  if (list.length) next.byDay[dayId] = list
+  else delete next.byDay[dayId]
+  next.byDay[destDayId] = [...(next.byDay[destDayId] ?? []), entry]
+  return next
+}
+
+export function sumDay(data, dayId) {
+  const w = normalizeWallet(data)
+  return (w.byDay[dayId] ?? []).reduce((s, e) => s + entryTotalTwd(e), 0)
+}
+
+export function sumAll(data) {
+  const w = normalizeWallet(data)
+  return Object.values(w.byDay)
+    .flat()
+    .reduce((s, e) => s + entryTotalTwd(e), 0)
+}
+
+/** 舊資料「姐姐」與選單「姊姊」視為同一人 */
+export function normalizePayerName(raw) {
+  if (!raw || !String(raw).trim()) return '未指定付款人'
+  const t = String(raw).trim()
+  if (t === '姐姐') return '姊姊'
+  return t
+}
+
+/** 累積：各付款人台幣加總（外幣已換算為 twd）。無 paidBy 計入「未指定付款人」。 */
+export function sumAllByPayer(data) {
+  const w = normalizeWallet(data)
+  const map = new Map()
+  for (const list of Object.values(w.byDay)) {
+    if (!Array.isArray(list)) continue
+    for (const e of list) {
+      const key = normalizePayerName(e.paidBy)
+      map.set(key, (map.get(key) || 0) + entryTotalTwd(e))
+    }
+  }
+  return [...map.entries()]
+    .filter(([, sum]) => sum !== 0)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-Hant'))
+}
+
+/** 累積：全部支出（含日期標籤、正規化付款人） */
+export function listAllWalletEntries(data, dayLabelById = new Map()) {
+  const w = normalizeWallet(data)
+  const rows = []
+  for (const [dayId, list] of Object.entries(w.byDay)) {
+    if (!Array.isArray(list)) continue
+    for (const e of list) {
+      rows.push({
+        dayId,
+        dayLabel: dayLabelById.get(dayId) ?? dayId,
+        entry: e,
+        paidBy: normalizePayerName(e.paidBy),
+      })
+    }
+  }
+  rows.sort((a, b) => a.dayId.localeCompare(b.dayId))
+  return rows
+}
+
+/** 累積：指定付款人的每筆支出（含日期標籤） */
+export function listEntriesByPayer(data, payer, dayLabelById = new Map()) {
+  const target = normalizePayerName(payer)
+  const w = normalizeWallet(data)
+  const rows = []
+  for (const [dayId, list] of Object.entries(w.byDay)) {
+    if (!Array.isArray(list)) continue
+    for (const e of list) {
+      if (normalizePayerName(e.paidBy) !== target) continue
+      rows.push({
+        dayId,
+        dayLabel: dayLabelById.get(dayId) ?? dayId,
+        entry: e,
+      })
+    }
+  }
+  rows.sort((a, b) => a.dayId.localeCompare(b.dayId))
+  return rows
+}
