@@ -42,6 +42,7 @@ export function InfoPillPanel({
   onAddDriveLink,
   onUpdateDriveLink,
   onRemoveDriveLink,
+  onRestoreDefaultDriveAlbums,
   onAddAlbumImages,
   onRemoveAlbumImage,
 }) {
@@ -161,6 +162,15 @@ export function InfoPillPanel({
           圖片會壓縮後存本機；加入共用後會同步雲端，家人下載一次後也會快取在手機。亦可另填
           Google Drive 連結。
         </p>
+        <div className="info-pill-drive-restore-row">
+          <button
+            type="button"
+            className="info-pill-drive-restore-btn"
+            onClick={onRestoreDefaultDriveAlbums}
+          >
+            恢復預設分類
+          </button>
+        </div>
 
         <input
           ref={fileInputRef}
@@ -174,7 +184,7 @@ export function InfoPillPanel({
         <ul className="info-pill-link-list info-pill-link-list--drive">
           {customDriveLinks.links.length === 0 ? (
             <li className="info-pill-panel__empty info-pill-panel__empty--day">
-              尚無分類，可點「＋ 新增分類」。
+              尚無分類，可點「恢復預設分類」或「＋ 新增分類」。
             </li>
           ) : null}
           {customDriveLinks.links.map((link) => {

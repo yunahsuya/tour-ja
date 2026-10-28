@@ -70,6 +70,7 @@ import {
   normalizeDriveLinks,
   removeCustomDriveLink,
   removeImageIdFromAlbum,
+  restoreDefaultDriveAlbums,
   saveCustomDriveLinks,
   updateCustomDriveLink,
 } from "./driveLinksStorage.js";
@@ -351,7 +352,7 @@ export default function App() {
   }
 
   function handleResetTrip() {
-    if (!window.confirm("重設為預設行程？此裝置上已編輯的內容會清除。")) return;
+    if (!window.confirm("恢復預設行程？此裝置上已編輯的內容會清除。")) return;
     clearTripStorage();
     setTripData(loadTripData());
     setDayIndex(stripIndexForToday(flattenDays(loadTripData())));
@@ -861,6 +862,25 @@ export default function App() {
     }
   }
 
+  function handleRestoreDefaultDriveAlbums() {
+    if (
+      !window.confirm(
+        "要恢復預設分類（機票／入境／住宿／票券）嗎？自訂分類與各分類內的圖片會清除。",
+      )
+    ) {
+      return;
+    }
+    const { links, removedImageIds } =
+      restoreDefaultDriveAlbums(customDriveLinks);
+    commitDriveLinks({ links });
+    if (removedImageIds.length) {
+      void deleteDocImages(removedImageIds);
+      if (getDocImagesCloudContext().ready) {
+        void deleteDocImagesFromCloud(removedImageIds);
+      }
+    }
+  }
+
   async function handleAddAlbumImages(albumId, files) {
     const album = customDriveLinks.links.find((l) => l.id === albumId);
     if (!album) return;
@@ -1137,6 +1157,7 @@ export default function App() {
           onAddDriveLink={handleAddDriveLink}
           onUpdateDriveLink={handleUpdateDriveLink}
           onRemoveDriveLink={handleRemoveDriveLink}
+          onRestoreDefaultDriveAlbums={handleRestoreDefaultDriveAlbums}
           onAddAlbumImages={handleAddAlbumImages}
           onRemoveAlbumImage={handleRemoveAlbumImage}
         />
@@ -1332,7 +1353,7 @@ export default function App() {
         </button>
       )}
       <p className="fine-print">
-        行程請在該列點「編輯」修改文字與地圖連結；備用景點請在卡片點「編輯」修改名稱、地圖連結與備註。齒輪可重設預設。未加入行程代碼時，資料僅存在本機瀏覽器；加入代碼後可跨裝置同步（見上方區塊）。行李清單可依家庭成員（妹妹、姊姊、媽媽、爸爸）分開勾選與自訂項目；下方航空參考區的標題、說明與每則備註皆可新增、編輯、刪除。
+        行程請在該列點「編輯」修改文字與地圖連結；備用景點請在卡片點「編輯」修改名稱、地圖連結與備註。右上角齒輪可開啟選單，選擇「恢復預設」重設行程。未加入行程代碼時，資料僅存在本機瀏覽器；加入代碼後可跨裝置同步（見上方區塊）。行李清單可依家庭成員（妹妹、姊姊、媽媽、爸爸）分開勾選與自訂項目；下方航空參考區的標題、說明與每則備註皆可新增、編輯、刪除。
         離線：請先以 HTTPS 部署或本機執行 npm run build 後 npm run
         preview，用瀏覽器完整開啟一次再關閉網路；已安裝為 App 者亦可離線開啟。
         PWA：Chrome／Edge「安裝應用程式」；iPhone Safari「加入主畫面」。

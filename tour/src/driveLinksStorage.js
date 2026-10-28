@@ -226,6 +226,20 @@ export function removeCustomDriveLink(data, id) {
   return { links: normalizeDriveLinks(data).links.filter((link) => link.id !== id) }
 }
 
+/**
+ * 重設為預設四分類（機票／入境／住宿／票券）。
+ * 自訂分類會移除；回傳被清掉的圖片 id 供呼叫端刪除。
+ * @returns {{ links: ReturnType<typeof normalizeDriveLinks>['links'], removedImageIds: string[] }}
+ */
+export function restoreDefaultDriveAlbums(data) {
+  const current = normalizeDriveLinks(data).links
+  const removedImageIds = current.flatMap((l) => l.imageIds ?? [])
+  return {
+    links: seededDefaultLinks(),
+    removedImageIds,
+  }
+}
+
 /** @returns {{ links: ReturnType<typeof normalizeDriveLinks>['links'], addedId: string | null }} */
 export function appendImageIdToAlbum(data, albumId, imageId) {
   let addedId = null
