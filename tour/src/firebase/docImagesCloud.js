@@ -154,11 +154,12 @@ export async function deleteDocImagesFromCloud(ids) {
 }
 
 /**
- * 從行程／憑證資料收集全部 imageId
+ * 從行程／憑證／備用景點資料收集全部 imageId
  * @param {unknown} tripData
  * @param {{ links?: { imageIds?: string[] }[] } | null | undefined} driveLinks
+ * @param {{ spots?: { imageIds?: string[] }[] } | null | undefined} spots
  */
-export function collectTourImageIds(tripData, driveLinks) {
+export function collectTourImageIds(tripData, driveLinks, spots) {
   const out = new Set()
   for (const link of driveLinks?.links ?? []) {
     for (const id of link.imageIds ?? []) {
@@ -176,6 +177,12 @@ export function collectTourImageIds(tripData, driveLinks) {
           }
         }
       }
+    }
+  }
+  for (const spot of spots?.spots ?? []) {
+    for (const id of spot?.imageIds ?? []) {
+      const s = String(id ?? '').trim()
+      if (s) out.add(s)
     }
   }
   return [...out]

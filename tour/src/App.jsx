@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { flattenDays } from "./data/trip.js";
 import {
   addSpot as addSpotData,
+  addSpotCategory as addSpotCategoryData,
   DEFAULT_SPOT_CATEGORY,
   loadSpots,
   normalizeSpotCategory,
   removeSpot as removeSpotData,
+  removeSpotCategory as removeSpotCategoryData,
+  restoreDefaultSpotCategories as restoreDefaultSpotCategoriesData,
   saveSpots,
   updateSpot as updateSpotData,
 } from "./spotsStorage.js";
@@ -133,6 +136,7 @@ export default function App() {
   const [spotNote, setSpotNote] = useState("");
   const [spotMapUrl, setSpotMapUrl] = useState("");
   const [spotCategory, setSpotCategory] = useState(DEFAULT_SPOT_CATEGORY);
+  const [spotImageIds, setSpotImageIds] = useState([]);
   const [spotFilter, setSpotFilter] = useState("all");
   const [showSpotForm, setShowSpotForm] = useState(false);
   const [showAddItemModal, setShowAddItemModal] = useState(false);
@@ -397,12 +401,14 @@ export default function App() {
       )
     )
       return;
+    const spotImgs = (spot.imageIds ?? []).filter(Boolean);
     const next = appendItemToTrip(tripData, current.region.id, current.day.id, {
       type: "activity",
       time: "",
       title,
       detail,
       ...(spot.mapUrl?.trim() ? { mapUrl: spot.mapUrl.trim() } : {}),
+      ...(spotImgs.length ? { imageIds: [...spotImgs] } : {}),
     });
     persist(next);
     setShowAllItems(true);
@@ -575,12 +581,13 @@ export default function App() {
 
   function handleAddSpot(e) {
     e.preventDefault();
-    const cat = normalizeSpotCategory(spotCategory);
+    const cat = normalizeSpotCategory(spotCategory, spots.categories);
     const next = addSpotData(spots, {
       title: spotTitle,
       note: spotNote,
       mapUrl: spotMapUrl,
       category: cat,
+      imageIds: spotImageIds,
     });
     saveSpots(next);
     setSpots(next);
@@ -588,6 +595,7 @@ export default function App() {
     setSpotNote("");
     setSpotMapUrl("");
     setSpotCategory(DEFAULT_SPOT_CATEGORY);
+    setSpotImageIds([]);
     setShowSpotForm(false);
     setEditingSpotId(null);
     setEditSpotTitle("");
@@ -595,6 +603,53 @@ export default function App() {
     setEditSpotMapUrl("");
     setEditSpotCategory(DEFAULT_SPOT_CATEGORY);
     if (spotFilter !== "all" && spotFilter !== cat) setSpotFilter(cat);
+  }
+
+  function handleUpdateSpotImages(spotId, imageIds) {
+    const next = updateSpotData(spots, spotId, { imageIds });
+    saveSpots(next);
+    setSpots(next);
+  }
+
+  function handleAddSpotCategory(label) {
+    const { data: next, addedId } = addSpotCategoryData(spots, label);
+    saveSpots(next);
+    setSpots(next);
+    return addedId;
+  }
+
+  function handleRemoveSpotCategory(categoryId) {
+    const { data: next, removed, fallbackId } = removeSpotCategoryData(
+      spots,
+      categoryId,
+    );
+    if (!removed) {
+      window.alert("至少需保留一個分類");
+      return;
+    }
+    saveSpots(next);
+    setSpots(next);
+    if (spotFilter === categoryId) setSpotFilter("all");
+    if (spotCategory === categoryId) {
+      setSpotCategory(fallbackId || DEFAULT_SPOT_CATEGORY);
+    }
+    if (editSpotCategory === categoryId) {
+      setEditSpotCategory(fallbackId || DEFAULT_SPOT_CATEGORY);
+    }
+  }
+
+  function handleRestoreDefaultSpotCategories() {
+    const next = restoreDefaultSpotCategoriesData(spots);
+    saveSpots(next);
+    setSpots(next);
+    if (
+      spotFilter !== "all" &&
+      !next.categories.some((c) => c.id === spotFilter)
+    ) {
+      setSpotFilter("all");
+    }
+    setSpotCategory(DEFAULT_SPOT_CATEGORY);
+    setEditSpotCategory(DEFAULT_SPOT_CATEGORY);
   }
 
   function handleRemoveSpot(id) {
@@ -605,6 +660,9 @@ export default function App() {
       setEditSpotMapUrl("");
       setEditSpotCategory(DEFAULT_SPOT_CATEGORY);
     }
+    const target = (spots.spots ?? []).find((s) => s.id === id);
+    const imgs = target?.imageIds ?? [];
+    if (imgs.length) discardItemImages(imgs);
     const next = removeSpotData(spots, id);
     saveSpots(next);
     setSpots(next);
@@ -616,7 +674,9 @@ export default function App() {
     setEditSpotTitle(s.title);
     setEditSpotNote(s.note ?? "");
     setEditSpotMapUrl(s.mapUrl ?? "");
-    setEditSpotCategory(normalizeSpotCategory(s.category));
+    setEditSpotCategory(
+      normalizeSpotCategory(s.category, spots.categories),
+    );
   }
 
   function cancelEditSpot() {
@@ -1107,11 +1167,14 @@ export default function App() {
 
   function openSpotForm() {
     cancelEditSpot();
+    if (spotImageIds.length) discardItemImages(spotImageIds);
     setSpotTitle("");
     setSpotNote("");
     setSpotMapUrl("");
+    setSpotImageIds([]);
+    const cats = spots.categories ?? [];
     setSpotCategory(
-      spotFilter === "food" || spotFilter === "sight"
+      spotFilter !== "all" && cats.some((c) => c.id === spotFilter)
         ? spotFilter
         : DEFAULT_SPOT_CATEGORY,
     );
@@ -1146,9 +1209,11 @@ export default function App() {
   }
 
   function onCancelSpotForm() {
+    if (spotImageIds.length) discardItemImages(spotImageIds);
     setShowSpotForm(false);
     setSpotMapUrl("");
     setSpotCategory(DEFAULT_SPOT_CATEGORY);
+    setSpotImageIds([]);
     cancelEditSpot();
   }
 
@@ -1331,6 +1396,8 @@ export default function App() {
           setSpotMapUrl={setSpotMapUrl}
           spotCategory={spotCategory}
           setSpotCategory={setSpotCategory}
+          spotImageIds={spotImageIds}
+          setSpotImageIds={setSpotImageIds}
           handleAddSpot={handleAddSpot}
           editingSpotId={editingSpotId}
           editSpotTitle={editSpotTitle}
@@ -1347,6 +1414,10 @@ export default function App() {
           handleRemoveSpot={handleRemoveSpot}
           handleAddSpotToItinerary={handleAddSpotToItinerary}
           onCancelSpotForm={onCancelSpotForm}
+          onAddSpotCategory={handleAddSpotCategory}
+          onRemoveSpotCategory={handleRemoveSpotCategory}
+          onRestoreDefaultSpotCategories={handleRestoreDefaultSpotCategories}
+          onUpdateSpotImages={handleUpdateSpotImages}
         />
       )}
 

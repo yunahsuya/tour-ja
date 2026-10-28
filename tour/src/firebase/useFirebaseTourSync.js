@@ -16,6 +16,7 @@ import { remapWalletDayIds } from '../walletStorage.js'
 import { normalizeWallet } from '../walletStorage.js'
 import { packingStateFromJson, packingStateToJson } from '../packingListStorage.js'
 import { normalizeDriveLinks } from '../driveLinksStorage.js'
+import { normalizeSpots } from '../spotsStorage.js'
 import { clearShareCode, loadShareCode, saveShareCode } from './shareCodeStorage.js'
 import {
   generateShareCode,
@@ -57,7 +58,7 @@ function parseFirestorePayload(data) {
   const wallet = walletRaw ? normalizeWallet(walletRaw) : null
   let spots = null
   if (data.spots && typeof data.spots === 'object' && Array.isArray(data.spots.spots)) {
-    spots = { spots: data.spots.spots }
+    spots = normalizeSpots(data.spots)
   }
   const packing = data.packing ? packingStateFromJson(data.packing) : null
   let driveLinks = null
@@ -376,7 +377,11 @@ export function useFirebaseTourSync({
       try {
         await new Promise((r) => setTimeout(r, 800))
         if (stopped) return
-        const ids = collectTourImageIds(tripRef.current, driveLinksRef.current)
+        const ids = collectTourImageIds(
+          tripRef.current,
+          driveLinksRef.current,
+          spotsRef.current,
+        )
         if (!ids.length) return
         const result = await uploadPendingLocalImages(code, ids)
         if (result.failed > 0 && !stopped) {

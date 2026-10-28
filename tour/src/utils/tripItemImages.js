@@ -34,7 +34,7 @@ export async function uploadItemImageFiles(files, existingIds, albumKey) {
   const current = normalizeItemImageIds(existingIds)
   const room = MAX_IMAGES_PER_ITEM - current.length
   if (room <= 0) {
-    throw new Error(`每個行程最多 ${MAX_IMAGES_PER_ITEM} 張圖片`)
+    throw new Error(`最多 ${MAX_IMAGES_PER_ITEM} 張圖片`)
   }
   const list = Array.from(files ?? []).filter(Boolean)
   const picked = list.slice(0, room)

@@ -2510,6 +2510,57 @@ select.trip-input--select,
   color: var(--accent-on);
 }
 
+.spot-cat-manage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -6px 0 14px;
+}
+
+.spot-cat-manage-btn {
+  padding: 6px 12px;
+  border: 1px dashed rgba(140, 125, 110, 0.55);
+  border-radius: 999px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.spot-cat-manage-btn:hover {
+  background: #f7f3ec;
+  color: #4a3b32;
+}
+
+.spot-cat-manage-btn--danger {
+  border-style: solid;
+  border-color: rgba(160, 70, 60, 0.35);
+  color: #9a4038;
+}
+
+.spot-cat-manage-btn--danger:hover {
+  background: rgba(160, 70, 60, 0.08);
+  color: #7a3028;
+}
+
+.spot-cat-manage-btn--muted {
+  border-style: solid;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-soft);
+  opacity: 0.85;
+}
+
+.spot-cat-add-form {
+  margin-bottom: 14px;
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+
 .spot-card-top {
   display: flex;
   align-items: flex-start;
@@ -2543,6 +2594,11 @@ select.trip-input--select,
   color: #5a4a40;
 }
 
+.spot-cat-badge--custom {
+  background: rgba(90, 120, 100, 0.12);
+  color: #3f5c4c;
+}
+
 .spot-form {
   margin-bottom: 16px;
   padding: 16px;
@@ -2550,6 +2606,13 @@ select.trip-input--select,
   background: var(--paper);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-soft);
+}
+
+.spot-form .item-images-field,
+.spot-card .item-images-field,
+.spot-card-edit .item-images-field {
+  margin-top: 10px;
+  margin-bottom: 4px;
 }
 
 .spot-list {

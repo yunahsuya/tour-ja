@@ -1,6 +1,6 @@
 import { loadTripData, loadTripDataWithMeta, prepareTripData } from '../tripStorage.js'
 import { loadWallet, normalizeWallet, remapWalletDayIds, saveWallet } from '../walletStorage.js'
-import { loadSpots } from '../spotsStorage.js'
+import { loadSpots, normalizeSpots } from '../spotsStorage.js'
 import { loadPackingState, packingStateFromJson, packingStateToJson } from '../packingListStorage.js'
 import { loadCustomDriveLinks, normalizeDriveLinks } from '../driveLinksStorage.js'
 import { loadShareCode } from './shareCodeStorage.js'
@@ -64,7 +64,7 @@ export function saveCodeSnapshot(code, { tripData, wallet, spots, packing, drive
     const payload = {
       trip: tripData,
       wallet: normalizeWallet(wallet),
-      spots: spots?.spots ? spots : { spots: [] },
+      spots: spots?.spots ? normalizeSpots(spots) : normalizeSpots({ spots: [] }),
       packing: packingStateToJson(packing),
       driveLinks: driveLinks ? normalizeDriveLinks(driveLinks) : undefined,
       savedAt: Date.now(),
@@ -92,7 +92,7 @@ export function loadCodeSnapshot(code) {
     }
     let spots = null
     if (p.spots && typeof p.spots === 'object' && Array.isArray(p.spots.spots)) {
-      spots = { spots: p.spots.spots }
+      spots = normalizeSpots(p.spots)
     }
     const packing = p.packing ? packingStateFromJson(p.packing) : null
     const driveLinks =
