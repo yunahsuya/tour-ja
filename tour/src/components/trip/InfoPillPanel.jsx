@@ -3,7 +3,7 @@ import { MAX_IMAGES_PER_ALBUM } from '../../driveLinksStorage.js'
 import { IconCalendarOutline, IconPencilSmall, IconTrashSmall } from '../icons/Icons.jsx'
 import { AlbumImageGrid, ImageLightbox } from './AlbumImageGrid.jsx'
 
-function DriveLinkFields({ label, setLabel, href, setHref, from, setFrom }) {
+function DriveLinkFields({ label, setLabel, href, setHref }) {
   return (
     <>
       <label className="trip-edit-label">
@@ -28,18 +28,12 @@ function DriveLinkFields({ label, setLabel, href, setHref, from, setFrom }) {
           inputMode="url"
         />
       </label>
-      <label className="trip-edit-label">
-        <span>來源說明</span>
-        <input
-          className="trip-input"
-          value={from}
-          onChange={(e) => setFrom(e.target.value)}
-          placeholder="Google Drive / 本機圖片"
-          maxLength={80}
-        />
-      </label>
     </>
   )
+}
+
+function defaultFrom(href) {
+  return href.trim() ? 'Google Drive' : '本機圖片'
 }
 
 export function InfoPillPanel({
@@ -54,11 +48,9 @@ export function InfoPillPanel({
   const [showAddForm, setShowAddForm] = useState(false)
   const [addLabel, setAddLabel] = useState('')
   const [addHref, setAddHref] = useState('')
-  const [addFrom, setAddFrom] = useState('本機圖片')
   const [editingId, setEditingId] = useState(null)
   const [editLabel, setEditLabel] = useState('')
   const [editHref, setEditHref] = useState('')
-  const [editFrom, setEditFrom] = useState('')
   const [lightboxSrc, setLightboxSrc] = useState('')
   const [uploadingId, setUploadingId] = useState(null)
   const fileInputRef = useRef(null)
@@ -67,7 +59,6 @@ export function InfoPillPanel({
   function resetAddForm() {
     setAddLabel('')
     setAddHref('')
-    setAddFrom('本機圖片')
     setShowAddForm(false)
   }
 
@@ -75,22 +66,21 @@ export function InfoPillPanel({
     setEditingId(link.id)
     setEditLabel(link.label)
     setEditHref(link.href ?? '')
-    setEditFrom(link.from ?? '本機圖片')
   }
 
   function cancelEdit() {
     setEditingId(null)
     setEditLabel('')
     setEditHref('')
-    setEditFrom('')
   }
 
   function handleAddSubmit(e) {
     e.preventDefault()
+    const href = addHref.trim()
     onAddDriveLink({
       label: addLabel.trim() || '未命名',
-      href: addHref.trim(),
-      from: addFrom.trim() || (addHref.trim() ? 'Google Drive' : '本機圖片'),
+      href,
+      from: defaultFrom(href),
     })
     resetAddForm()
   }
@@ -98,10 +88,11 @@ export function InfoPillPanel({
   function handleEditSubmit(e) {
     e.preventDefault()
     if (!editingId) return
+    const href = editHref.trim()
     onUpdateDriveLink(editingId, {
       label: editLabel.trim() || '未命名',
-      href: editHref.trim(),
-      from: editFrom.trim() || (editHref.trim() ? 'Google Drive' : '本機圖片'),
+      href,
+      from: defaultFrom(href),
     })
     cancelEdit()
   }
@@ -195,8 +186,6 @@ export function InfoPillPanel({
                       setLabel={setEditLabel}
                       href={editHref}
                       setHref={setEditHref}
-                      from={editFrom}
-                      setFrom={setEditFrom}
                     />
                     <div className="trip-edit-actions">
                       <button type="button" className="btn-ghost" onClick={cancelEdit}>
@@ -208,59 +197,61 @@ export function InfoPillPanel({
                     </div>
                   </form>
                 ) : (
-                  <>
-                    <div className="info-pill-drive-custom">
-                      <div className="info-pill-drive-custom-main">
-                        {link.href ? (
-                          <a href={link.href} target="_blank" rel="noreferrer noopener">
-                            {link.label}
-                          </a>
-                        ) : (
-                          <span className="album-title-text">{link.label}</span>
-                        )}
-                        <span className="info-pill-link-from">
-                          {link.from ?? '本機圖片'}
-                          {imageIds.length > 0 ? ` · ${imageIds.length} 張圖` : ''}
-                        </span>
-                      </div>
-                      <div className="info-pill-drive-actions">
-                        <button
-                          type="button"
-                          className="info-pill-drive-add-img-btn"
-                          disabled={atLimit || uploadingId === link.id}
-                          onClick={() => openFilePicker(link.id)}
-                        >
-                          {uploadingId === link.id ? '上傳中…' : '＋ 圖片'}
-                        </button>
-                        <button
-                          type="button"
-                          className="info-pill-drive-icon-btn"
-                          aria-label={`編輯「${link.label}」`}
-                          onClick={() => startEdit(link)}
-                        >
-                          <IconPencilSmall />
-                        </button>
-                        <button
-                          type="button"
-                          className="info-pill-drive-icon-btn info-pill-drive-icon-btn--danger"
-                          aria-label={`刪除「${link.label}」`}
-                          onClick={() => {
-                            if (window.confirm(`要刪除「${link.label}」及其圖片嗎？`)) {
-                              onRemoveDriveLink(link.id)
-                            }
-                          }}
-                        >
-                          <IconTrashSmall />
-                        </button>
-                      </div>
+                  <div className="info-pill-drive-custom">
+                    <div className="info-pill-drive-custom-main">
+                      {link.href ? (
+                        <a href={link.href} target="_blank" rel="noreferrer noopener">
+                          {link.label}
+                        </a>
+                      ) : (
+                        <span className="album-title-text">{link.label}</span>
+                      )}
+                      {imageIds.length > 0 ? (
+                        <span className="info-pill-link-from">{imageIds.length} 張圖</span>
+                      ) : null}
                     </div>
-                    <AlbumImageGrid
-                      imageIds={imageIds}
-                      onOpen={setLightboxSrc}
-                      onRemove={(imageId) => onRemoveAlbumImage(link.id, imageId)}
-                    />
-                  </>
+                    <div className="info-pill-drive-actions">
+                      <button
+                        type="button"
+                        className="info-pill-drive-add-img-btn"
+                        disabled={atLimit || uploadingId === link.id}
+                        onClick={() => openFilePicker(link.id)}
+                      >
+                        {uploadingId === link.id ? '上傳中…' : '＋ 圖片'}
+                      </button>
+                      <button
+                        type="button"
+                        className="info-pill-drive-icon-btn"
+                        aria-label={`編輯「${link.label}」`}
+                        onClick={() => startEdit(link)}
+                      >
+                        <IconPencilSmall />
+                      </button>
+                      <button
+                        type="button"
+                        className="info-pill-drive-icon-btn info-pill-drive-icon-btn--danger"
+                        aria-label={`刪除「${link.label}」`}
+                        onClick={() => {
+                          if (window.confirm(`要刪除「${link.label}」及其圖片嗎？`)) {
+                            onRemoveDriveLink(link.id)
+                          }
+                        }}
+                      >
+                        <IconTrashSmall />
+                      </button>
+                    </div>
+                  </div>
                 )}
+                <AlbumImageGrid
+                  imageIds={imageIds}
+                  onOpen={setLightboxSrc}
+                  onRemove={
+                    editingId === link.id
+                      ? (imageId) => onRemoveAlbumImage(link.id, imageId)
+                      : undefined
+                  }
+                  emptyText={editingId === link.id ? undefined : null}
+                />
               </li>
             )
           })}
@@ -273,8 +264,6 @@ export function InfoPillPanel({
               setLabel={setAddLabel}
               href={addHref}
               setHref={setAddHref}
-              from={addFrom}
-              setFrom={setAddFrom}
             />
             <div className="trip-edit-actions">
               <button type="button" className="btn-ghost" onClick={resetAddForm}>

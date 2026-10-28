@@ -67,6 +67,7 @@ import {
   loadCustomDriveLinks,
   MAX_IMAGES_PER_ALBUM,
   newDocImageId,
+  normalizeDriveLinks,
   removeCustomDriveLink,
   removeImageIdFromAlbum,
   saveCustomDriveLinks,
@@ -128,7 +129,10 @@ export default function App() {
     () => initialTourBundle.packing,
   );
   const [customDriveLinks, setCustomDriveLinks] = useState(
-    () => initialTourBundle.driveLinks ?? loadCustomDriveLinks(),
+    () =>
+      normalizeDriveLinks(
+        initialTourBundle.driveLinks ?? loadCustomDriveLinks(),
+      ),
   );
   const stripRef = useRef(null);
   const cardRef = useRef(null);
@@ -824,8 +828,9 @@ export default function App() {
   }
 
   function commitDriveLinks(next) {
-    saveCustomDriveLinks(next);
-    setCustomDriveLinks(next);
+    const normalized = normalizeDriveLinks(next);
+    saveCustomDriveLinks(normalized);
+    setCustomDriveLinks(normalized);
   }
 
   function handleAddDriveLink(payload) {

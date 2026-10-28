@@ -3,8 +3,33 @@ import { touchLocalDataSavedCookie } from './localDataMarker.js'
 
 const KEY = 'tour-drive-links-v1'
 const SEEDED_KEY = 'tour-drive-links-seeded-v2'
+const CLEAR_SEED_HREF_KEY = 'tour-drive-links-clear-seed-href-v1'
+
+/** 舊版預設種子的 Google Drive 資料夾 ID（已不再使用） */
+const LEGACY_SEED_FOLDER_IDS = [
+  '1HBqZNNU6W-Y2jYHuce0l5Hqup6QylDqJ',
+  '1X0a38GZxkc0ZXJnVwLQ7elinHshHlDB2',
+  '13WZA2Nhrd0ms3bnN3WkyVxz1cLmpX-ZQ',
+]
 
 const BUILTIN_IDS = new Set(tripDriveLinks.map((l) => l.id))
+
+function isLegacySeedHref(href) {
+  if (!href) return false
+  return LEGACY_SEED_FOLDER_IDS.some((id) => href.includes(id))
+}
+
+/** 清掉預設四分類上的舊種子雲端連結（本機／同步／快取都會經過） */
+export function stripLegacySeedDriveHrefs(data) {
+  const normalized = normalizeDriveLinks(data)
+  let changed = false
+  const links = normalized.links.map((link) => {
+    if (!BUILTIN_IDS.has(link.id) || !isLegacySeedHref(link.href)) return link
+    changed = true
+    return { ...link, href: '', from: '本機圖片' }
+  })
+  return changed ? { links } : normalized
+}
 const LEGACY_BUILTIN_IDS = new Set([
   'drive-builtin-sheet',
   'drive-builtin-docs',
@@ -65,15 +90,19 @@ export function normalizeDriveLinks(data) {
     .map((x) => {
       const label = x.label.trim().slice(0, 120)
       if (!label) return null
-      const href = typeof x.href === 'string' ? x.href.trim().slice(0, 2000) : ''
-      const from =
-        typeof x.from === 'string' && x.from.trim()
+      const id = x.id.trim()
+      let href = typeof x.href === 'string' ? x.href.trim().slice(0, 2000) : ''
+      // 只清舊版預設種子的 Drive 資料夾，使用者自填的連結要保留
+      if (isLegacySeedHref(href)) {
+        href = ''
+      }
+      const from = href
+        ? typeof x.from === 'string' && x.from.trim()
           ? x.from.trim().slice(0, 80)
-          : href
-            ? 'Google Drive'
-            : '本機圖片'
+          : 'Google Drive'
+        : '本機圖片'
       return {
-        id: x.id.trim(),
+        id,
         label,
         href,
         from,
@@ -137,7 +166,14 @@ export function loadCustomDriveLinks() {
       persistLinks(defaults)
       return defaults
     }
-    return withBuiltinSeedIfNeeded(JSON.parse(raw))
+    const next = stripLegacySeedDriveHrefs(withBuiltinSeedIfNeeded(JSON.parse(raw)))
+    persistLinks(next)
+    try {
+      localStorage.setItem(CLEAR_SEED_HREF_KEY, '1')
+    } catch {
+      // ignore
+    }
+    return next
   } catch {
     return defaultDriveLinks()
   }

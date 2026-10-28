@@ -11,8 +11,8 @@ export const tripDriveLinks = [
   {
     id: 'drive-album-flight',
     label: '機票',
-    href: 'https://drive.google.com/drive/folders/1HBqZNNU6W-Y2jYHuce0l5Hqup6QylDqJ',
-    from: 'Google Drive',
+    href: '',
+    from: '本機圖片',
   },
   {
     id: 'drive-album-entry',
@@ -23,14 +23,14 @@ export const tripDriveLinks = [
   {
     id: 'drive-album-stay',
     label: '住宿',
-    href: 'https://drive.google.com/drive/folders/1X0a38GZxkc0ZXJnVwLQ7elinHshHlDB2',
-    from: 'Google Drive',
+    href: '',
+    from: '本機圖片',
   },
   {
     id: 'drive-album-ticket',
     label: '票券',
-    href: 'https://drive.google.com/drive/folders/13WZA2Nhrd0ms3bnN3WkyVxz1cLmpX-ZQ',
-    from: 'Google Drive',
+    href: '',
+    from: '本機圖片',
   },
 ]
 
