@@ -1,5 +1,5 @@
 # 倉庫根目錄在「外層」，Vite 專案在子資料夾 tour/
-# 網址：https://yunahsuya.github.io/tour/
+# 網址：https://yunahsuya.github.io/tour-ja/
 # Settings → Pages → Source 請選「GitHub Actions」
 #
 # 若 Actions 全綠但網址仍 404：到 Code → .github/workflows/ 檢查是否還有

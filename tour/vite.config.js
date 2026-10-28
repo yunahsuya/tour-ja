@@ -2,8 +2,8 @@ import { VitePWA } from 'vite-plugin-pwa'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
-// GitHub Pages 專案站網址為 https://<帳號>.github.io/<倉庫名>/ ，故 production 使用 /tour/
-const GITHUB_PAGES_BASE = '/tour/'
+// GitHub Pages 專案站網址為 https://<帳號>.github.io/<倉庫名>/ ，故 production 使用 /tour-ja/
+const GITHUB_PAGES_BASE = '/tour-ja/'
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
