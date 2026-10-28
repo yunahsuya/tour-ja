@@ -1,4 +1,9 @@
 import { deleteDocImage, putDocImage } from '../docImagesDb.js'
+import {
+  deleteDocImageFromCloud,
+  uploadDocImageToCloud,
+} from '../firebase/docImagesCloud.js'
+import { getDocImagesCloudContext } from '../firebase/docImagesCloudContext.js'
 import { newDocImageId } from '../driveLinksStorage.js'
 import { compressImageFile } from './imageCompress.js'
 
@@ -20,7 +25,7 @@ export function normalizeItemImageIds(rawIds) {
 }
 
 /**
- * 壓縮並寫入 IndexedDB，回傳成功的 imageId 列表
+ * 壓縮並寫入 IndexedDB（有共用代碼時一併上傳雲端），回傳成功的 imageId 列表
  * @param {File[]} files
  * @param {string[]} existingIds
  * @param {string} albumKey
@@ -34,6 +39,7 @@ export async function uploadItemImageFiles(files, existingIds, albumKey) {
   const list = Array.from(files ?? []).filter(Boolean)
   const picked = list.slice(0, room)
   const added = []
+  const { ready } = getDocImagesCloudContext()
   for (const file of picked) {
     try {
       const { blob, name, mime } = await compressImageFile(file)
@@ -45,6 +51,13 @@ export async function uploadItemImageFiles(files, existingIds, albumKey) {
         blob,
         createdAt: Date.now(),
       })
+      if (ready) {
+        try {
+          await uploadDocImageToCloud(imageId, blob, { name, mime })
+        } catch (err) {
+          console.warn('[tour] 行程圖片雲端上傳失敗（本機已保存）', err)
+        }
+      }
       added.push(imageId)
     } catch (err) {
       console.warn('[tour] 行程圖片上傳失敗', err)
@@ -61,5 +74,10 @@ export async function uploadItemImageFiles(files, existingIds, albumKey) {
 /** @param {string[]} ids */
 export function discardItemImages(ids) {
   const list = normalizeItemImageIds(ids)
-  if (list.length) void Promise.all(list.map((id) => deleteDocImage(id).catch(() => {})))
+  if (!list.length) return
+  void Promise.all(list.map((id) => deleteDocImage(id).catch(() => {})))
+  const { ready } = getDocImagesCloudContext()
+  if (ready) {
+    void Promise.all(list.map((id) => deleteDocImageFromCloud(id).catch(() => {})))
+  }
 }

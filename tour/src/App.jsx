@@ -74,6 +74,12 @@ import {
   updateCustomDriveLink,
 } from "./driveLinksStorage.js";
 import { deleteDocImage, deleteDocImages, putDocImage } from "./docImagesDb.js";
+import {
+  deleteDocImageFromCloud,
+  deleteDocImagesFromCloud,
+  uploadDocImageToCloud,
+} from "./firebase/docImagesCloud.js";
+import { getDocImagesCloudContext } from "./firebase/docImagesCloudContext.js";
 import { compressImageFile } from "./utils/imageCompress.js";
 import { discardItemImages } from "./utils/tripItemImages.js";
 import "./App.css";
@@ -847,7 +853,12 @@ export default function App() {
     const target = customDriveLinks.links.find((l) => l.id === id);
     const imageIds = target?.imageIds ?? [];
     commitDriveLinks(removeCustomDriveLink(customDriveLinks, id));
-    if (imageIds.length) void deleteDocImages(imageIds);
+    if (imageIds.length) {
+      void deleteDocImages(imageIds);
+      if (getDocImagesCloudContext().ready) {
+        void deleteDocImagesFromCloud(imageIds);
+      }
+    }
   }
 
   async function handleAddAlbumImages(albumId, files) {
@@ -861,6 +872,7 @@ export default function App() {
     const picked = files.slice(0, room);
     let next = customDriveLinks;
     let added = 0;
+    const cloudReady = getDocImagesCloudContext().ready;
     for (const file of picked) {
       try {
         const { blob, name, mime } = await compressImageFile(file);
@@ -872,9 +884,17 @@ export default function App() {
           blob,
           createdAt: Date.now(),
         });
+        if (cloudReady) {
+          try {
+            await uploadDocImageToCloud(imageId, blob, { name, mime });
+          } catch (err) {
+            console.warn("[tour] 圖片雲端上傳失敗（本機已保存）", err);
+          }
+        }
         const result = appendImageIdToAlbum(next, albumId, imageId);
         if (!result.addedId) {
           await deleteDocImage(imageId);
+          if (cloudReady) void deleteDocImageFromCloud(imageId);
           break;
         }
         next = { links: result.links };
@@ -893,6 +913,9 @@ export default function App() {
   function handleRemoveAlbumImage(albumId, imageId) {
     commitDriveLinks(removeImageIdFromAlbum(customDriveLinks, albumId, imageId));
     void deleteDocImage(imageId);
+    if (getDocImagesCloudContext().ready) {
+      void deleteDocImageFromCloud(imageId);
+    }
   }
 
   const dayEntries = current?.day.id

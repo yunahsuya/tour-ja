@@ -51,7 +51,7 @@ export function InfoPillPanel({
   const [editingId, setEditingId] = useState(null)
   const [editLabel, setEditLabel] = useState('')
   const [editHref, setEditHref] = useState('')
-  const [lightboxSrc, setLightboxSrc] = useState('')
+  const [lightbox, setLightbox] = useState(null)
   const [uploadingId, setUploadingId] = useState(null)
   const fileInputRef = useRef(null)
   const pendingAlbumIdRef = useRef(null)
@@ -157,7 +157,10 @@ export function InfoPillPanel({
             </button>
           )}
         </div>
-        <p className="album-hint">圖片存在此裝置；可另填 Google Drive 連結方便家人開啟。</p>
+        <p className="album-hint">
+          圖片會壓縮後存本機；加入共用後會同步雲端，家人下載一次後也會快取在手機。亦可另填
+          Google Drive 連結。
+        </p>
 
         <input
           ref={fileInputRef}
@@ -244,7 +247,11 @@ export function InfoPillPanel({
                 )}
                 <AlbumImageGrid
                   imageIds={imageIds}
-                  onOpen={setLightboxSrc}
+                  onOpen={(imageId) => {
+                    const i = imageIds.indexOf(imageId)
+                    if (i < 0) return
+                    setLightbox({ imageIds, index: i })
+                  }}
                   onRemove={
                     editingId === link.id
                       ? (imageId) => onRemoveAlbumImage(link.id, imageId)
@@ -277,7 +284,14 @@ export function InfoPillPanel({
         ) : null}
       </div>
 
-      <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc('')} />
+      <ImageLightbox
+        imageIds={lightbox?.imageIds}
+        index={lightbox?.index ?? 0}
+        onClose={() => setLightbox(null)}
+        onIndexChange={(next) =>
+          setLightbox((prev) => (prev ? { ...prev, index: next } : prev))
+        }
+      />
     </section>
   )
 }

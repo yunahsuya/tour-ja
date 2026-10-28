@@ -24,7 +24,7 @@ export function ItemImagesField({
 }) {
   const inputRef = useRef(null)
   const [uploading, setUploading] = useState(false)
-  const [lightboxSrc, setLightboxSrc] = useState('')
+  const [lightbox, setLightbox] = useState(null)
   const ids = normalizeItemImageIds(imageIds)
   const atLimit = ids.length >= MAX_IMAGES_PER_ITEM
 
@@ -73,7 +73,11 @@ export function ItemImagesField({
       ) : null}
       <AlbumImageGrid
         imageIds={ids}
-        onOpen={setLightboxSrc}
+        onOpen={(imageId) => {
+          const i = ids.indexOf(imageId)
+          if (i < 0) return
+          setLightbox({ imageIds: ids, index: i })
+        }}
         onRemove={
           editable
             ? (imageId) => {
@@ -84,7 +88,14 @@ export function ItemImagesField({
         }
         emptyText={editable ? '尚未加入圖片，可點「＋ 圖片」。' : null}
       />
-      <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc('')} />
+      <ImageLightbox
+        imageIds={lightbox?.imageIds}
+        index={lightbox?.index ?? 0}
+        onClose={() => setLightbox(null)}
+        onIndexChange={(next) =>
+          setLightbox((prev) => (prev ? { ...prev, index: next } : prev))
+        }
+      />
     </div>
   )
 }

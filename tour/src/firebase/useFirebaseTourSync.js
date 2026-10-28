@@ -24,6 +24,11 @@ import {
 } from './shareCodeUtils.js'
 import { describeFirebaseSyncError } from './firebaseErrors.js'
 import {
+  collectTourImageIds,
+  uploadPendingLocalImages,
+} from './docImagesCloud.js'
+import { setDocImagesCloudContext } from './docImagesCloudContext.js'
+import {
   getCodeLocalWriteTs,
   isCodeSyncSeeded,
   loadCodeSnapshot,
@@ -125,6 +130,14 @@ export function useFirebaseTourSync({
   useLayoutEffect(() => {
     shareCodeRef.current = shareCode
   }, [shareCode])
+
+  useLayoutEffect(() => {
+    const code = normalizeShareCode(shareCode)
+    setDocImagesCloudContext({
+      shareCode: code,
+      ready: Boolean(syncReady && isValidShareCode(code)),
+    })
+  }, [shareCode, syncReady])
 
   const lastPushedJson = useRef('')
   const applyingRemote = useRef(false)
@@ -357,6 +370,28 @@ export function useFirebaseTourSync({
 
     runPull()
     const intervalId = window.setInterval(runPull, PULL_INTERVAL_MS)
+
+    // 本機既有圖補傳到雲端；之後家人就能下載並快取
+    void (async () => {
+      try {
+        await new Promise((r) => setTimeout(r, 800))
+        if (stopped) return
+        const ids = collectTourImageIds(tripRef.current, driveLinksRef.current)
+        if (!ids.length) return
+        const result = await uploadPendingLocalImages(code, ids)
+        if (result.failed > 0 && !stopped) {
+          setSyncError((prev) =>
+            prev ||
+            '部分圖片未能上傳雲端：請確認已開 Blaze，並發布 storage.rules',
+          )
+        }
+      } catch (e) {
+        console.warn('[tour] 圖片雲端補傳失敗', e)
+        if (!stopped) {
+          setSyncError((prev) => prev || describeFirebaseSyncError(e))
+        }
+      }
+    })()
 
     return () => {
       stopped = true

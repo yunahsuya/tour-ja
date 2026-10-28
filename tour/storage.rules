@@ -1,0 +1,22 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // 與 Firestore sharedTours/{code} 對應：匿名登入 + 合法代碼
+    match /sharedTours/{tripId}/images/{imageId} {
+      allow read: if request.auth != null
+        && tripId.matches('^[A-Z0-9]{6,16}$');
+
+      allow write: if request.auth != null
+        && tripId.matches('^[A-Z0-9]{6,16}$')
+        && (
+          // 刪除
+          request.resource == null
+          // 上傳：限圖片且 < 500KB（前端會壓到約 100KB）
+          || (
+            request.resource.size < 500 * 1024
+            && request.resource.contentType.matches('image/.*')
+          )
+        );
+    }
+  }
+}
