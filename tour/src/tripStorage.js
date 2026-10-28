@@ -70,6 +70,28 @@ export function collapseDuplicateDayLabels(trip) {
   return { trip: result, changed, dayIdRemap }
 }
 
+/** 預設文案更新：覆寫本機舊標題（不影響使用者自訂其他項目） */
+const TITLE_MIGRATIONS = {
+  '虎航：台北 → 小松': '虎航：台北 → 小松 (第一航廈)',
+}
+
+function migrateTripItemTitles(trip) {
+  let changed = false
+  const next = trip.map((region) => ({
+    ...region,
+    days: (region.days || []).map((day) => ({
+      ...day,
+      items: (day.items || []).map((item) => {
+        const mapped = TITLE_MIGRATIONS[item?.title]
+        if (!mapped || mapped === item.title) return item
+        changed = true
+        return { ...item, title: mapped }
+      }),
+    })),
+  }))
+  return { trip: next, changed }
+}
+
 /** 合併缺漏地區、去重日期、排序項目；有變更時寫回本機 */
 export function prepareTripData(raw) {
   const { trip: merged, changed: mergeChanged } = mergeTripWithDefaults(raw)
@@ -78,8 +100,9 @@ export function prepareTripData(raw) {
     changed: dedupeChanged,
     dayIdRemap,
   } = collapseDuplicateDayLabels(merged)
-  const ordered = normalizeTripItemOrder(deduped)
-  if (mergeChanged || dedupeChanged) saveTripData(ordered)
+  const { trip: titled, changed: titleChanged } = migrateTripItemTitles(deduped)
+  const ordered = normalizeTripItemOrder(titled)
+  if (mergeChanged || dedupeChanged || titleChanged) saveTripData(ordered)
   return { trip: ordered, dayIdRemap }
 }
 

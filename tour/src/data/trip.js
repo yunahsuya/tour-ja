@@ -50,7 +50,7 @@ export const regions = [
           {
             type: 'activity',
             time: '11:50',
-            title: '虎航：台北 → 小松',
+            title: '虎航：台北 → 小松 (第一航廈)',
             detail: '桃園第一航廈報到／候機／起飛',
             emphasis: 'booking',
           },

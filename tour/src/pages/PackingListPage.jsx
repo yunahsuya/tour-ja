@@ -3,6 +3,14 @@ import { PACKING_CHECKLIST_SECTIONS, PACKING_REFERENCE_BLOCK_ORDER } from '../da
 import { PACKING_PROFILES } from '../constants/packingProfiles.js'
 import { IconPencilSmall, IconTrashSmall } from '../components/icons/Icons.jsx'
 
+function defaultLabelForItem(itemId) {
+  for (const sec of PACKING_CHECKLIST_SECTIONS) {
+    const found = sec.items.find((it) => it.id === itemId)
+    if (found) return found.label
+  }
+  return null
+}
+
 const REF_VARIANT = {
   carryOnRules: 'sky',
   checkedRules: 'sand',
@@ -29,7 +37,10 @@ export function PackingListPage({
   onClearAll,
   onAddCustom,
   onUpdateLabel,
-  onDeleteItem,
+  onHideItem,
+  onRestoreDefault,
+  onRestoreAllDefaults,
+  onRestoreCustomItems,
 }) {
   const [draftBySection, setDraftBySection] = useState({})
   const [editingItemId, setEditingItemId] = useState(null)
@@ -49,8 +60,11 @@ export function PackingListPage({
           ...it,
           label: labelOverrides[it.id] ?? it.label,
           isCustom: false,
+          isRenamed: Boolean(labelOverrides[it.id]),
         }))
-      const customs = (customsBySection[sec.id] ?? []).map((it) => ({ ...it, isCustom: true }))
+      const customs = (customsBySection[sec.id] ?? [])
+        .filter((it) => !hiddenDefaultIds.has(it.id))
+        .map((it) => ({ ...it, isCustom: true, isRenamed: false }))
       return { sec, rows: [...defaults, ...customs] }
     })
   }, [customsBySection, hiddenDefaultIds, labelOverrides])
@@ -92,7 +106,7 @@ export function PackingListPage({
   function saveEditItem(sec, it) {
     const text = editDraft.trim()
     if (!text) {
-      window.alert('項目名稱不能為空，若要刪除請用刪除鈕。')
+      window.alert('項目名稱不能為空。')
       return
     }
     onUpdateLabel(sec.id, it.id, it.isCustom, text)
@@ -140,6 +154,22 @@ export function PackingListPage({
       <div className="packing-toolbar">
         <button type="button" className="trip-action-btn" onClick={onClearAll}>
           清除所有勾選
+        </button>
+        <button
+          type="button"
+          className="trip-action-btn"
+          onClick={onRestoreAllDefaults}
+          title="只恢復程式內建項目與名稱，不會顯示你自己新增後隱藏的項目"
+        >
+          恢復預設項目
+        </button>
+        <button
+          type="button"
+          className="trip-action-btn"
+          onClick={onRestoreCustomItems}
+          title="只顯示你自己新增後隱藏的項目，不會動內建預設"
+        >
+          還原新增項目
         </button>
       </div>
 
@@ -203,12 +233,30 @@ export function PackingListPage({
                         >
                           <IconPencilSmall />
                         </button>
+                        {!it.isCustom && it.isRenamed ? (
+                          <button
+                            type="button"
+                            className="packing-row-btn packing-row-btn--text"
+                            aria-label={`將「${it.label}」恢復預設名稱`}
+                            title={`恢復預設：${defaultLabelForItem(it.id) ?? ''}`}
+                            onClick={() => onRestoreDefault(it.id)}
+                          >
+                            預設
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           className="packing-row-btn packing-row-btn--danger"
-                          aria-label={`刪除「${it.label}」`}
+                          aria-label={`從清單隱藏「${it.label}」`}
+                          title="從清單隱藏（資料仍保留，可按「恢復預設項目」找回）"
                           onClick={() => {
-                            if (window.confirm(`要刪除「${it.label}」嗎？`)) onDeleteItem(sec.id, it.id, it.isCustom)
+                            if (
+                              window.confirm(
+                                `要從清單隱藏「${it.label}」嗎？\n（不會刪掉資料，可按上方「恢復預設項目」找回）`,
+                              )
+                            ) {
+                              onHideItem(it.id)
+                            }
                           }}
                         >
                           <IconTrashSmall />
@@ -232,9 +280,9 @@ export function PackingListPage({
                   submitDraft(sec.id)
                 }
               }}
-              placeholder="新增自訂項目…"
+              placeholder="新增項目（全家共用）…"
               maxLength={200}
-              aria-label={`在「${sec.title}」新增項目`}
+              aria-label={`在「${sec.title}」新增項目（全家共用）`}
             />
             <button type="button" className="packing-add-btn" onClick={() => submitDraft(sec.id)}>
               新增

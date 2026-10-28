@@ -55,12 +55,21 @@ import { WalletPage } from "./pages/WalletPage.jsx";
 import { useFirebaseTourSync } from "./firebase/useFirebaseTourSync.js";
 import { loadInitialTourBundle } from "./firebase/tourCodeCache.js";
 import { PACKING_PROFILES } from "./constants/packingProfiles.js";
+import { PACKING_CHECKLIST_SECTIONS } from "./data/packingList.js";
 import {
   loadPackingState,
   newCustomItemId,
   newRefBulletId,
   persistPackingState,
 } from "./packingListStorage.js";
+
+function packingBuiltinItemIds() {
+  const ids = new Set();
+  for (const sec of PACKING_CHECKLIST_SECTIONS) {
+    for (const it of sec.items) ids.add(it.id);
+  }
+  return ids;
+}
 import {
   addCustomDriveLink,
   appendImageIdToAlbum,
@@ -678,38 +687,11 @@ export default function App() {
     const trimmed = label.trim();
     if (!trimmed) return;
     setPackingListState((prev) => {
-      const pid = prev.activeProfileId;
-      const slice = prev.profiles[pid];
+      const customsBySection = prev.customsBySection ?? {};
       const row = { id: newCustomItemId(), label: trimmed };
-      const list = [...(slice.customsBySection[sectionId] ?? []), row];
-      const nextCustoms = { ...slice.customsBySection, [sectionId]: list };
-      const nextSlice = { ...slice, customsBySection: nextCustoms };
-      const nextProfiles = { ...prev.profiles, [pid]: nextSlice };
-      const next = { ...prev, profiles: nextProfiles };
-      persistPackingState(next);
-      return next;
-    });
-  }
-
-  function handlePackingRemoveCustom(sectionId, itemId) {
-    setPackingListState((prev) => {
-      const pid = prev.activeProfileId;
-      const slice = prev.profiles[pid];
-      const list = (slice.customsBySection[sectionId] ?? []).filter(
-        (x) => x.id !== itemId,
-      );
-      const nextCustoms = { ...slice.customsBySection };
-      if (list.length) nextCustoms[sectionId] = list;
-      else delete nextCustoms[sectionId];
-      const nextChecked = new Set(slice.checked);
-      nextChecked.delete(itemId);
-      const nextSlice = {
-        ...slice,
-        checked: nextChecked,
-        customsBySection: nextCustoms,
-      };
-      const nextProfiles = { ...prev.profiles, [pid]: nextSlice };
-      const next = { ...prev, profiles: nextProfiles };
+      const list = [...(customsBySection[sectionId] ?? []), row];
+      const nextCustoms = { ...customsBySection, [sectionId]: list };
+      const next = { ...prev, customsBySection: nextCustoms };
       persistPackingState(next);
       return next;
     });
@@ -719,48 +701,106 @@ export default function App() {
     const trimmed = label.trim();
     if (!trimmed) return;
     setPackingListState((prev) => {
-      const pid = prev.activeProfileId;
-      const slice = prev.profiles[pid];
-      let nextSlice;
+      let next;
       if (isCustom) {
-        const list = (slice.customsBySection[sectionId] ?? []).map((x) =>
+        const customsBySection = prev.customsBySection ?? {};
+        const list = (customsBySection[sectionId] ?? []).map((x) =>
           x.id === itemId ? { ...x, label: trimmed } : x,
         );
-        const nextCustoms = { ...slice.customsBySection, [sectionId]: list };
-        nextSlice = { ...slice, customsBySection: nextCustoms };
+        const nextCustoms = { ...customsBySection, [sectionId]: list };
+        next = { ...prev, customsBySection: nextCustoms };
       } else {
-        const nextOverrides = { ...slice.labelOverrides, [itemId]: trimmed };
-        nextSlice = { ...slice, labelOverrides: nextOverrides };
+        const nextOverrides = {
+          ...(prev.labelOverrides ?? {}),
+          [itemId]: trimmed,
+        };
+        next = { ...prev, labelOverrides: nextOverrides };
       }
-      const nextProfiles = { ...prev.profiles, [pid]: nextSlice };
-      const next = { ...prev, profiles: nextProfiles };
       persistPackingState(next);
       return next;
     });
   }
 
-  function handlePackingDeleteItem(sectionId, itemId, isCustom) {
-    if (isCustom) {
-      handlePackingRemoveCustom(sectionId, itemId);
+  /** 畫面上刪除＝只隱藏，資料保留；真的要刪掉請跟 AI 說 */
+  function handlePackingHideItem(itemId) {
+    setPackingListState((prev) => {
+      const nextHidden = new Set(prev.hiddenDefaultIds ?? []);
+      nextHidden.add(itemId);
+      const next = { ...prev, hiddenDefaultIds: nextHidden };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  /** 將內建項目名稱還原為程式預設，並取消隱藏 */
+  function handlePackingRestoreDefault(itemId) {
+    setPackingListState((prev) => {
+      const nextOverrides = { ...(prev.labelOverrides ?? {}) };
+      delete nextOverrides[itemId];
+      const nextHidden = new Set(prev.hiddenDefaultIds ?? []);
+      nextHidden.delete(itemId);
+      const next = {
+        ...prev,
+        labelOverrides: nextOverrides,
+        hiddenDefaultIds: nextHidden,
+      };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  /** 只恢復內建預設項目與名稱；使用者自行新增／隱藏的項目不動 */
+  function handlePackingRestoreAllDefaults() {
+    if (
+      !window.confirm(
+        "要恢復內建預設項目與預設名稱嗎？（不會動到你自己新增或隱藏的自訂項目）",
+      )
+    ) {
       return;
     }
     setPackingListState((prev) => {
-      const pid = prev.activeProfileId;
-      const slice = prev.profiles[pid];
-      const nextHidden = new Set(slice.hiddenDefaultIds);
-      nextHidden.add(itemId);
-      const nextOverrides = { ...slice.labelOverrides };
-      delete nextOverrides[itemId];
-      const nextChecked = new Set(slice.checked);
-      nextChecked.delete(itemId);
-      const nextSlice = {
-        ...slice,
-        checked: nextChecked,
-        hiddenDefaultIds: nextHidden,
+      const builtinIds = packingBuiltinItemIds();
+      const nextHidden = new Set();
+      for (const id of prev.hiddenDefaultIds ?? []) {
+        if (!builtinIds.has(id)) nextHidden.add(id);
+      }
+      const nextOverrides = {};
+      for (const [id, label] of Object.entries(prev.labelOverrides ?? {})) {
+        if (!builtinIds.has(id)) nextOverrides[id] = label;
+      }
+      const next = {
+        ...prev,
         labelOverrides: nextOverrides,
+        hiddenDefaultIds: nextHidden,
       };
-      const nextProfiles = { ...prev.profiles, [pid]: nextSlice };
-      const next = { ...prev, profiles: nextProfiles };
+      persistPackingState(next);
+      return next;
+    });
+  }
+
+  /** 只把使用者自己新增後隱藏的項目顯示回來 */
+  function handlePackingRestoreCustomItems() {
+    if (
+      !window.confirm(
+        "要還原你自己新增、後來隱藏的項目嗎？（不會動到內建預設項目）",
+      )
+    ) {
+      return;
+    }
+    setPackingListState((prev) => {
+      const customIds = new Set();
+      for (const list of Object.values(prev.customsBySection ?? {})) {
+        if (!Array.isArray(list)) continue;
+        for (const it of list) {
+          if (it?.id) customIds.add(it.id);
+        }
+      }
+      const nextHidden = new Set();
+      for (const id of prev.hiddenDefaultIds ?? []) {
+        if (customIds.has(id)) continue;
+        nextHidden.add(id);
+      }
+      const next = { ...prev, hiddenDefaultIds: nextHidden };
       persistPackingState(next);
       return next;
     });
@@ -1317,18 +1357,11 @@ export default function App() {
           checkedIds={
             packingListState.profiles[packingListState.activeProfileId].checked
           }
-          customsBySection={
-            packingListState.profiles[packingListState.activeProfileId]
-              .customsBySection
-          }
+          customsBySection={packingListState.customsBySection ?? {}}
           hiddenDefaultIds={
-            packingListState.profiles[packingListState.activeProfileId]
-              .hiddenDefaultIds
+            packingListState.hiddenDefaultIds ?? new Set()
           }
-          labelOverrides={
-            packingListState.profiles[packingListState.activeProfileId]
-              .labelOverrides
-          }
+          labelOverrides={packingListState.labelOverrides ?? {}}
           referenceBlocks={packingListState.referenceBlocks}
           onRefUpdateTitle={handleRefUpdateTitle}
           onRefUpdateNote={handleRefUpdateNote}
@@ -1339,7 +1372,10 @@ export default function App() {
           onClearAll={handlePackingClearAll}
           onAddCustom={handlePackingAddCustom}
           onUpdateLabel={handlePackingUpdateLabel}
-          onDeleteItem={handlePackingDeleteItem}
+          onHideItem={handlePackingHideItem}
+          onRestoreDefault={handlePackingRestoreDefault}
+          onRestoreAllDefaults={handlePackingRestoreAllDefaults}
+          onRestoreCustomItems={handlePackingRestoreCustomItems}
         />
       )}
 
@@ -1353,7 +1389,7 @@ export default function App() {
         </button>
       )}
       <p className="fine-print">
-        行程請在該列點「編輯」修改文字與地圖連結；備用景點請在卡片點「編輯」修改名稱、地圖連結與備註。右上角齒輪可開啟選單，選擇「恢復預設」重設行程。未加入行程代碼時，資料僅存在本機瀏覽器；加入代碼後可跨裝置同步（見上方區塊）。行李清單可依家庭成員（妹妹、姊姊、媽媽、爸爸）分開勾選與自訂項目；下方航空參考區的標題、說明與每則備註皆可新增、編輯、刪除。
+        行程請在該列點「編輯」修改文字與地圖連結；備用景點請在卡片點「編輯」修改名稱、地圖連結與備註。右上角齒輪可開啟選單，選擇「恢復預設」重設行程。未加入行程代碼時，資料僅存在本機瀏覽器；加入代碼後可跨裝置同步（見上方區塊）。行李清單的項目（新增／改名）全家共用；畫面上刪除僅隱藏、資料仍保留，可按「恢復預設項目」找回。勾選狀態可依家庭成員（妹妹、姊姊、媽媽、爸爸）分開。下方航空參考區的標題、說明與每則備註皆可新增、編輯、刪除。
         離線：請先以 HTTPS 部署或本機執行 npm run build 後 npm run
         preview，用瀏覽器完整開啟一次再關閉網路；已安裝為 App 者亦可離線開啟。
         PWA：Chrome／Edge「安裝應用程式」；iPhone Safari「加入主畫面」。

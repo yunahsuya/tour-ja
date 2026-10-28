@@ -10,6 +10,7 @@ export const PACKING_CHECKLIST_SECTIONS = [
       { id: 'docs-ticket', label: '機票證明' },
       { id: 'docs-insurance', label: '海外旅遊保險單' },
       { id: 'docs-hotel', label: '飯店訂單' },
+      { id: 'docs-entry', label: '入境' },
     ],
   },
   {

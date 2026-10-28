@@ -1,4 +1,4 @@
-/** 行李清單：家庭成員各一份 */
+/** 行李清單：勾選狀態依家庭成員分開；項目清單全家共用 */
 export const PACKING_PROFILES = [
   { id: 'sis-young', label: '妹妹' },
   { id: 'sis-elder', label: '姊姊' },

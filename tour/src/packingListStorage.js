@@ -13,9 +13,15 @@ const KEY_V2 = 'tour-packing-checked-v2'
 const SECTION_IDS = new Set(PACKING_CHECKLIST_SECTIONS.map((s) => s.id))
 const PROFILE_IDS = new Set(PACKING_PROFILES.map((p) => p.id))
 
+/** 每位家人只各自保留勾選；清單項目本身全家共用 */
 function emptyProfile() {
   return {
     checked: new Set(),
+  }
+}
+
+function emptySharedChecklist() {
+  return {
     customsBySection: {},
     hiddenDefaultIds: new Set(),
     labelOverrides: {},
@@ -46,41 +52,102 @@ function normalizeLabelOverrides(raw) {
   return out
 }
 
+function normalizeHiddenIds(raw) {
+  return new Set(Array.isArray(raw) ? raw.filter((x) => typeof x === 'string') : [])
+}
+
+function mergeCustoms(...parts) {
+  const out = {}
+  const seen = {}
+  for (const sid of SECTION_IDS) {
+    out[sid] = []
+    seen[sid] = new Set()
+  }
+  for (const part of parts) {
+    if (!part || typeof part !== 'object') continue
+    for (const sid of SECTION_IDS) {
+      const list = part[sid]
+      if (!Array.isArray(list)) continue
+      for (const row of list) {
+        if (!row?.id || seen[sid].has(row.id)) continue
+        seen[sid].add(row.id)
+        out[sid].push(row)
+      }
+    }
+  }
+  for (const sid of SECTION_IDS) {
+    if (!out[sid].length) delete out[sid]
+  }
+  return out
+}
+
 function parseProfileSlice(data) {
   if (!data || typeof data !== 'object') return emptyProfile()
-  const checked = new Set(
-    Array.isArray(data.checked) ? data.checked.filter((x) => typeof x === 'string') : [],
-  )
-  const hiddenDefaultIds = new Set(
-    Array.isArray(data.hiddenDefaults)
-      ? data.hiddenDefaults.filter((x) => typeof x === 'string')
-      : [],
-  )
   return {
-    checked,
-    customsBySection: normalizeCustoms(data.customs),
-    hiddenDefaultIds,
-    labelOverrides: normalizeLabelOverrides(data.labelOverrides),
+    checked: new Set(
+      Array.isArray(data.checked) ? data.checked.filter((x) => typeof x === 'string') : [],
+    ),
   }
 }
 
-function serializeProfileSlice(slice) {
+/** 舊版把自訂項目存在各 profile 內；合併成共用清單 */
+function extractLegacySharedFromProfiles(profilesRaw) {
+  if (!profilesRaw || typeof profilesRaw !== 'object') return emptySharedChecklist()
+  const customsParts = []
+  const hidden = new Set()
+  const labelOverrides = {}
+  for (const { id } of PACKING_PROFILES) {
+    const slice = profilesRaw[id]
+    if (!slice || typeof slice !== 'object') continue
+    customsParts.push(normalizeCustoms(slice.customs))
+    for (const hid of normalizeHiddenIds(slice.hiddenDefaults)) hidden.add(hid)
+    Object.assign(labelOverrides, normalizeLabelOverrides(slice.labelOverrides))
+  }
+  return {
+    customsBySection: mergeCustoms(...customsParts),
+    hiddenDefaultIds: hidden,
+    labelOverrides,
+  }
+}
+
+function parseSharedChecklist(p) {
+  const hasRootShared =
+    (p.customs && typeof p.customs === 'object') ||
+    Array.isArray(p.hiddenDefaults) ||
+    (p.labelOverrides && typeof p.labelOverrides === 'object')
+
+  if (hasRootShared) {
+    return {
+      customsBySection: normalizeCustoms(p.customs),
+      hiddenDefaultIds: normalizeHiddenIds(p.hiddenDefaults),
+      labelOverrides: normalizeLabelOverrides(p.labelOverrides),
+    }
+  }
+  return extractLegacySharedFromProfiles(p.profiles)
+}
+
+function serializeSharedChecklist(state) {
   const customs = {}
   for (const sid of SECTION_IDS) {
-    const list = slice.customsBySection[sid]
+    const list = state.customsBySection?.[sid]
     if (list?.length) customs[sid] = list
   }
   const labelOverrides = {}
-  if (slice.labelOverrides && typeof slice.labelOverrides === 'object') {
-    for (const [k, v] of Object.entries(slice.labelOverrides)) {
+  if (state.labelOverrides && typeof state.labelOverrides === 'object') {
+    for (const [k, v] of Object.entries(state.labelOverrides)) {
       if (typeof v === 'string' && v.trim()) labelOverrides[k] = v
     }
   }
   return {
-    checked: [...slice.checked],
     customs,
-    hiddenDefaults: [...(slice.hiddenDefaultIds ?? [])],
+    hiddenDefaults: [...(state.hiddenDefaultIds ?? [])],
     labelOverrides,
+  }
+}
+
+function serializeProfileSlice(slice) {
+  return {
+    checked: [...(slice?.checked ?? [])],
   }
 }
 
@@ -134,6 +201,15 @@ function parseReferenceBlocks(raw) {
   return out
 }
 
+function emptyPackingState() {
+  return {
+    activeProfileId: PACKING_DEFAULT_PROFILE_ID,
+    profiles: allProfilesEmpty(),
+    ...emptySharedChecklist(),
+    referenceBlocks: buildDefaultReferenceBlocks(),
+  }
+}
+
 function parsePackingPayload(p) {
   const profiles = allProfilesEmpty()
   if (p.profiles && typeof p.profiles === 'object') {
@@ -145,8 +221,16 @@ function parsePackingPayload(p) {
     typeof p.activeProfileId === 'string' && PROFILE_IDS.has(p.activeProfileId)
       ? p.activeProfileId
       : PACKING_DEFAULT_PROFILE_ID
+  const shared = parseSharedChecklist(p)
   const referenceBlocks = parseReferenceBlocks(p.reference)
-  return { activeProfileId: active, profiles, referenceBlocks }
+  return {
+    activeProfileId: active,
+    profiles,
+    customsBySection: shared.customsBySection,
+    hiddenDefaultIds: shared.hiddenDefaultIds,
+    labelOverrides: shared.labelOverrides,
+    referenceBlocks,
+  }
 }
 
 function parseFullState(raw) {
@@ -174,9 +258,13 @@ export function packingStateToJson(state) {
         : [],
     }
   }
+  const shared = serializeSharedChecklist(state)
   return {
     activeProfileId: state.activeProfileId,
     profiles,
+    customs: shared.customs,
+    hiddenDefaults: shared.hiddenDefaults,
+    labelOverrides: shared.labelOverrides,
     reference: refObj,
   }
 }
@@ -205,17 +293,14 @@ function migrateFromV3Single(raw3) {
   const checked = new Set(
     Array.isArray(old.checked) ? old.checked.filter((x) => typeof x === 'string') : [],
   )
-  const customsBySection = normalizeCustoms(old.customs)
   const profiles = allProfilesEmpty()
-  profiles[PACKING_DEFAULT_PROFILE_ID] = {
-    checked,
-    customsBySection,
-    hiddenDefaultIds: new Set(),
-    labelOverrides: {},
-  }
+  profiles[PACKING_DEFAULT_PROFILE_ID] = { checked }
   const state = {
     activeProfileId: PACKING_DEFAULT_PROFILE_ID,
     profiles,
+    customsBySection: normalizeCustoms(old.customs),
+    hiddenDefaultIds: new Set(),
+    labelOverrides: {},
     referenceBlocks: buildDefaultReferenceBlocks(),
   }
   persistPackingState(state)
@@ -231,15 +316,11 @@ function migrateFromV2(raw2) {
   const arr = JSON.parse(raw2)
   const checked = new Set(Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : [])
   const profiles = allProfilesEmpty()
-  profiles[PACKING_DEFAULT_PROFILE_ID] = {
-    checked,
-    customsBySection: {},
-    hiddenDefaultIds: new Set(),
-    labelOverrides: {},
-  }
+  profiles[PACKING_DEFAULT_PROFILE_ID] = { checked }
   const state = {
     activeProfileId: PACKING_DEFAULT_PROFILE_ID,
     profiles,
+    ...emptySharedChecklist(),
     referenceBlocks: buildDefaultReferenceBlocks(),
   }
   persistPackingState(state)
@@ -253,11 +334,7 @@ function migrateFromV2(raw2) {
 
 export function loadPackingState() {
   if (typeof localStorage === 'undefined') {
-    return {
-      activeProfileId: PACKING_DEFAULT_PROFILE_ID,
-      profiles: allProfilesEmpty(),
-      referenceBlocks: buildDefaultReferenceBlocks(),
-    }
+    return emptyPackingState()
   }
   try {
     const raw4 = localStorage.getItem(KEY_V4)
@@ -271,10 +348,54 @@ export function loadPackingState() {
   } catch {
     // ignore
   }
+  return emptyPackingState()
+}
+
+/** 依名稱真的移除自訂項目（僅供明確要求時使用） */
+export function purgeCustomItemsByLabel(state, label) {
+  const target = String(label ?? '').trim()
+  if (!target || !state) return { state, removed: 0 }
+  const customs = state.customsBySection ?? {}
+  let removed = 0
+  const nextCustoms = {}
+  const removedIds = new Set()
+  for (const [sid, list] of Object.entries(customs)) {
+    if (!Array.isArray(list)) {
+      nextCustoms[sid] = list
+      continue
+    }
+    const kept = list.filter((x) => {
+      if (x && String(x.label).trim() === target) {
+        removed += 1
+        if (x.id) removedIds.add(x.id)
+        return false
+      }
+      return true
+    })
+    if (kept.length) nextCustoms[sid] = kept
+  }
+  if (!removed) return { state, removed: 0 }
+  const nextHidden = new Set(state.hiddenDefaultIds ?? [])
+  for (const id of removedIds) nextHidden.delete(id)
+  const nextProfiles = { ...state.profiles }
+  for (const { id: pid } of PACKING_PROFILES) {
+    const slice = nextProfiles[pid]
+    if (!slice?.checked) continue
+    let touched = false
+    const nextChecked = new Set(slice.checked)
+    for (const id of removedIds) {
+      if (nextChecked.delete(id)) touched = true
+    }
+    if (touched) nextProfiles[pid] = { ...slice, checked: nextChecked }
+  }
   return {
-    activeProfileId: PACKING_DEFAULT_PROFILE_ID,
-    profiles: allProfilesEmpty(),
-    referenceBlocks: buildDefaultReferenceBlocks(),
+    state: {
+      ...state,
+      profiles: nextProfiles,
+      customsBySection: nextCustoms,
+      hiddenDefaultIds: nextHidden,
+    },
+    removed,
   }
 }
 
